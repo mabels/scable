@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include <openssl/evp.h>
+#include <unistd.h>
 
 #define ELPP_THREAD_SAFE
 #include "easylogging++.h"
@@ -223,12 +224,12 @@ class ActionEncrypt {
       LOG(INFO) << "ActionEncrypt::run:cipher=" << cipher;
       Result::Data bench;
       long long totalSize = 0;
+      EVP_EncryptInit(ctx, cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
           LOG(INFO) << "ActionEncrypt::run:=" << this << " " << i << " of " << pattern;
         }
-        EVP_EncryptInit(ctx, cipher, data, data);
         int len = sizeof(ciphertext);
         int result_len = 0;
         //LOG(INFO) << "in-" << pat->size << ":" << (long long)data << ":" << (long long)data+size << ":" << (long long)pat->packet;
@@ -285,12 +286,12 @@ class ActionDecrypt {
       LOG(INFO) << "ActionDecrypt::run:cipher=" << cipher;
       Result::Data bench;
       long long totalSize = 0;
+      EVP_DecryptInit(ctx, cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
           LOG(INFO) << "ActionDecrypt::run:=" << this << " " << i << " of " << pattern;
         }
-        EVP_DecryptInit(ctx, cipher, data, data);
         int len = sizeof(ciphertext);
         int result_len = 0;
         //LOG(INFO) << "in-" << pat->size << ":" << (long long)data << ":" << (long long)data+size << ":" << (long long)pat->packet;
@@ -330,7 +331,7 @@ class TestEnDecryption {
         size += i->totalSize;
         time += i->takes();
       }
-      LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024 << "mb " << size/1024/1024/time << "mb/sec";
+      LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024 << "mb " << (size/1024/1024/time)*list.size() << "mb/sec";
     }
     void setup(long long size, int _workers) {
       LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers ;
@@ -384,6 +385,7 @@ int main(int argc, char **argv) {
   int pattern = 100000;
   if (argc >= 2) {
     std::stringstream(argv[1]) >> memory;
+    memory *= 1024 * 1024;
     if (memory < 1024*1024) {
       memory = 1024 * 1024;
     }
@@ -397,4 +399,5 @@ int main(int argc, char **argv) {
   ted.setup(memory, workers);
   ted.encrypt(pattern);
   ted.decrypt(pattern);
+//  sleep(10);
 }
