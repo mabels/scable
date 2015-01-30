@@ -291,6 +291,10 @@ class ActionDecrypt {
 
       // const EVP_CIPHER *cipher = EVP_aes_256_cbc();
       const EVP_CIPHER *cipher = EVP_get_cipherbyname(cipher_suite);
+      if (!cipher)
+      {
+        LOG(ERROR) << "EVP_get_cipherbyname failed";
+      }
       LOG(INFO) << "ActionDecrypt::run:cipher=" << cipher;
       Result::Data bench;
       long long totalSize = 0;
