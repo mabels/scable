@@ -195,13 +195,14 @@ class ActionEncrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
+    const char* cipher_suite;
 
     std::thread th;
 
   public:
 
-    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size) :
-      result(_result), pattern(_pattern), data(_data), size(_size) { }
+    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char* _cipher_suite) :
+      result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) { }
 
     ActionEncrypt(ActionEncrypt &other) :
       result(other.result), pattern(other.pattern), data(other.data), size(other.size) { }
@@ -220,7 +221,12 @@ class ActionEncrypt {
 
       unsigned char ciphertext[8192];
 
-      const EVP_CIPHER *cipher = EVP_aes_256_cbc(); //EVP_get_cipherbyname(cipher_name);
+      // const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+      const EVP_CIPHER *cipher = EVP_get_cipherbyname(cipher_suite);
+      if (!cipher)
+      {
+        LOG(ERROR) << "EVP_get_cipherbyname failed";
+      }
       LOG(INFO) << "ActionEncrypt::run:cipher=" << cipher;
       Result::Data bench;
       long long totalSize = 0;
@@ -254,13 +260,14 @@ class ActionDecrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
+    const char* cipher_suite;
 
     std::thread th;
 
   public:
 
-    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size) :
-      result(_result), pattern(_pattern), data(_data), size(_size) {
+    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char* _cipher_suite) :
+      result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) {
       }
 
     ActionDecrypt(ActionDecrypt &other) :
@@ -282,7 +289,8 @@ class ActionDecrypt {
 
       unsigned char ciphertext[8192];
 
-      const EVP_CIPHER *cipher = EVP_aes_256_cbc(); //EVP_get_cipherbyname(cipher_name);
+      // const EVP_CIPHER *cipher = EVP_aes_256_cbc();
+      const EVP_CIPHER *cipher = EVP_get_cipherbyname(cipher_suite);
       LOG(INFO) << "ActionDecrypt::run:cipher=" << cipher;
       Result::Data bench;
       long long totalSize = 0;
@@ -321,6 +329,7 @@ class TestEnDecryption {
     ~TestEnDecryption() {
       if (this->data) {
         delete this->data;
+        this->data = NULL;
       }
     }
     static void wait(Result &result) {
@@ -349,24 +358,24 @@ class TestEnDecryption {
       TestEnDecryption::wait(result);
     }
 
-    void encrypt(int pattern) {
+    void encrypt(int pattern, const char* cipher_suite) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionEncrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size))->start();
+        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size, cipher_suite))->start();
         workers.push_back(std::unique_ptr<ActionEncrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
       TestEnDecryption::wait(result);
     }
 
-    void decrypt(int pattern) {
+    void decrypt(int pattern, const char* cipher_suite) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionDecrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size))->start();
+        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size, cipher_suite))->start();
         workers.push_back(std::unique_ptr<ActionDecrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
@@ -378,6 +387,8 @@ class TestEnDecryption {
 INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
+  OpenSSL_add_all_algorithms();
+  const char* cipher_suite = "aes-256-cbc";
 
   TestEnDecryption ted;
   long long memory = 1024 * 1024 * 128;
@@ -396,8 +407,11 @@ int main(int argc, char **argv) {
   if (argc >= 4) {
     std::stringstream(argv[3]) >> pattern;
   }
+  if (argc >= 5) {
+    cipher_suite = std::stringstream(argv[4]).str().c_str();
+  }
   ted.setup(memory, workers);
-  ted.encrypt(pattern);
-  ted.decrypt(pattern);
+  ted.encrypt(pattern, cipher_suite);
+  ted.decrypt(pattern, cipher_suite);
 //  sleep(10);
 }
