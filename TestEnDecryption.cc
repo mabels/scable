@@ -195,13 +195,13 @@ class ActionEncrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
-    const char* cipher_suite;
+    const char *cipher_suite;
 
     std::thread th;
 
   public:
 
-    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char* _cipher_suite) :
+    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char *_cipher_suite) :
       result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) { }
 
     ActionEncrypt(ActionEncrypt &other) :
@@ -260,13 +260,13 @@ class ActionDecrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
-    const char* cipher_suite;
+    const char *cipher_suite;
 
     std::thread th;
 
   public:
 
-    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char* _cipher_suite) :
+    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char *_cipher_suite) :
       result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) {
       }
 
@@ -358,7 +358,7 @@ class TestEnDecryption {
       TestEnDecryption::wait(result);
     }
 
-    void encrypt(int pattern, const char* cipher_suite) {
+    void encrypt(int pattern, const char *cipher_suite) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionEncrypt>> workers;
@@ -370,7 +370,7 @@ class TestEnDecryption {
       TestEnDecryption::wait(result);
     }
 
-    void decrypt(int pattern, const char* cipher_suite) {
+    void decrypt(int pattern, const char *cipher_suite) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionDecrypt>> workers;
@@ -388,7 +388,7 @@ INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
   OpenSSL_add_all_algorithms();
-  const char* cipher_suite = "aes-256-cbc";
+  const char *cipher_suite = "aes-256-cbc";
 
   TestEnDecryption ted;
   long long memory = 1024 * 1024 * 128;
