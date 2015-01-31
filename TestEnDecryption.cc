@@ -336,9 +336,10 @@ class TestEnDecryption {
       }
       LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024 << "mb " << (size/1024/1024/time)*list.size() << "mb/sec";
     }
-    void setup(long long size, int _workers, const char* cipher_suite) {
+    void setup(long long size, int _workers, std::string &cipher_suite) {
       LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers;
-      this->cipher = EVP_get_cipherbyname(cipher_suite);
+
+      this->cipher = EVP_get_cipherbyname(cipher_suite.c_str());
       if (!this->cipher) {
         LOG(ERROR) << "EVP_get_cipherbyname failed. Check your cipher suite string.";
         exit(1);
@@ -387,7 +388,7 @@ INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
   OpenSSL_add_all_algorithms();
-  const char *cipher_suite = "aes-256-cbc";
+  std::string cipher_suite("aes-256-cbc");
 
   TestEnDecryption ted;
   long long memory = 1024 * 1024 * 128;
@@ -407,7 +408,7 @@ int main(int argc, char **argv) {
     std::stringstream(argv[3]) >> pattern;
   }
   if (argc >= 5) {
-    cipher_suite = std::stringstream(argv[4]).str().c_str();
+    std::stringstream(argv[4]) >> cipher_suite;
   }
   ted.setup(memory, workers, cipher_suite);
   ted.encrypt(pattern);
