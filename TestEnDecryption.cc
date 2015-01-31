@@ -221,7 +221,7 @@ class ActionEncrypt {
 
       unsigned char ciphertext[8192];
 
-      LOG(INFO) << "ActionEncrypt::run:cipher=" << this->cipher;
+      LOG(INFO) << "ActionEncrypt::run:cipher=" << EVP_CIPHER_name(this->cipher);
       Result::Data bench;
       long long totalSize = 0;
       EVP_EncryptInit(ctx, this->cipher, data, data);
@@ -283,7 +283,7 @@ class ActionDecrypt {
 
       unsigned char ciphertext[8192];
 
-      LOG(INFO) << "ActionDecrypt::run:cipher=" << this->cipher;
+      LOG(INFO) << "ActionDecrypt::run:cipher=" << EVP_CIPHER_name(this->cipher);
       Result::Data bench;
       long long totalSize = 0;
       EVP_DecryptInit(ctx, this->cipher, data, data);
