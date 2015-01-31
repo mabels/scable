@@ -412,6 +412,6 @@ int main(int argc, char **argv) {
   ted.setup(memory, workers, cipher_suite);
   ted.encrypt(pattern);
   ted.decrypt(pattern);
-  EVP_cleanup()
+  EVP_cleanup();
 //  sleep(10);
 }
