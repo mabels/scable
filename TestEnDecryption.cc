@@ -195,14 +195,14 @@ class ActionEncrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
-    const char *cipher_suite;
+    const EVP_CIPHER *cipher;
 
     std::thread th;
 
   public:
 
-    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char *_cipher_suite) :
-      result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) { }
+    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const EVP_CIPHER *_cipher):
+      result(_result), pattern(_pattern), data(_data), size(_size), cipher(_cipher) { }
 
     ActionEncrypt(ActionEncrypt &other) :
       result(other.result), pattern(other.pattern), data(other.data), size(other.size) { }
@@ -221,16 +221,10 @@ class ActionEncrypt {
 
       unsigned char ciphertext[8192];
 
-      // const EVP_CIPHER *cipher = EVP_aes_256_cbc();
-      const EVP_CIPHER *cipher = EVP_get_cipherbyname(cipher_suite);
-      if (!cipher)
-      {
-        LOG(ERROR) << "EVP_get_cipherbyname failed";
-      }
-      LOG(INFO) << "ActionEncrypt::run:cipher=" << cipher;
+      LOG(INFO) << "ActionEncrypt::run:cipher=" << this->cipher;
       Result::Data bench;
       long long totalSize = 0;
-      EVP_EncryptInit(ctx, cipher, data, data);
+      EVP_EncryptInit(ctx, this->cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
@@ -260,14 +254,14 @@ class ActionDecrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
-    const char *cipher_suite;
+    const EVP_CIPHER *cipher;
 
     std::thread th;
 
   public:
 
-    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const char *_cipher_suite) :
-      result(_result), pattern(_pattern), data(_data), size(_size), cipher_suite(_cipher_suite) {
+    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const EVP_CIPHER *_cipher) :
+      result(_result), pattern(_pattern), data(_data), size(_size), cipher(_cipher) {
       }
 
     ActionDecrypt(ActionDecrypt &other) :
@@ -289,16 +283,10 @@ class ActionDecrypt {
 
       unsigned char ciphertext[8192];
 
-      // const EVP_CIPHER *cipher = EVP_aes_256_cbc();
-      const EVP_CIPHER *cipher = EVP_get_cipherbyname(cipher_suite);
-      if (!cipher)
-      {
-        LOG(ERROR) << "EVP_get_cipherbyname failed";
-      }
-      LOG(INFO) << "ActionDecrypt::run:cipher=" << cipher;
+      LOG(INFO) << "ActionDecrypt::run:cipher=" << this->cipher;
       Result::Data bench;
       long long totalSize = 0;
-      EVP_DecryptInit(ctx, cipher, data, data);
+      EVP_DecryptInit(ctx, this->cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
@@ -329,6 +317,8 @@ class TestEnDecryption {
     long long size;
     long long workers;
     int pattern;
+    const EVP_CIPHER *cipher;
+
   public:
     ~TestEnDecryption() {
       if (this->data) {
@@ -346,8 +336,14 @@ class TestEnDecryption {
       }
       LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024 << "mb " << (size/1024/1024/time)*list.size() << "mb/sec";
     }
-    void setup(long long size, int _workers) {
-      LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers ;
+    void setup(long long size, int _workers, const char* cipher_suite) {
+      LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers;
+      OpenSSL_add_all_algorithms();
+      this->cipher = EVP_get_cipherbyname(cipher_suite);
+      if (!this->cipher) {
+        LOG(ERROR) << "EVP_get_cipherbyname failed. Check your cipher suite string.";
+        exit(1);
+      }
       this->workers = _workers;
       this->size = ((size/EVP_MAX_MD_SIZE)+1)*EVP_MAX_MD_SIZE;
       this->data = new unsigned char[this->size];
@@ -362,24 +358,24 @@ class TestEnDecryption {
       TestEnDecryption::wait(result);
     }
 
-    void encrypt(int pattern, const char *cipher_suite) {
+    void encrypt(int pattern) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionEncrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size, cipher_suite))->start();
+        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size, this->cipher))->start();
         workers.push_back(std::unique_ptr<ActionEncrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
       TestEnDecryption::wait(result);
     }
 
-    void decrypt(int pattern, const char *cipher_suite) {
+    void decrypt(int pattern) {
       LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
       Result result(this->workers);
       std::list<std::unique_ptr<ActionDecrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size, cipher_suite))->start();
+        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size, this->cipher))->start();
         workers.push_back(std::unique_ptr<ActionDecrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
@@ -391,7 +387,6 @@ class TestEnDecryption {
 INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
-  OpenSSL_add_all_algorithms();
   const char *cipher_suite = "aes-256-cbc";
 
   TestEnDecryption ted;
@@ -414,8 +409,8 @@ int main(int argc, char **argv) {
   if (argc >= 5) {
     cipher_suite = std::stringstream(argv[4]).str().c_str();
   }
-  ted.setup(memory, workers);
-  ted.encrypt(pattern, cipher_suite);
-  ted.decrypt(pattern, cipher_suite);
+  ted.setup(memory, workers, cipher_suite);
+  ted.encrypt(pattern);
+  ted.decrypt(pattern);
 //  sleep(10);
 }
