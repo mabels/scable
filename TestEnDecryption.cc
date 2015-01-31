@@ -338,7 +338,6 @@ class TestEnDecryption {
     }
     void setup(long long size, int _workers, const char* cipher_suite) {
       LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers;
-      OpenSSL_add_all_algorithms();
       this->cipher = EVP_get_cipherbyname(cipher_suite);
       if (!this->cipher) {
         LOG(ERROR) << "EVP_get_cipherbyname failed. Check your cipher suite string.";
@@ -387,6 +386,7 @@ class TestEnDecryption {
 INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
+  OpenSSL_add_all_algorithms();
   const char *cipher_suite = "aes-256-cbc";
 
   TestEnDecryption ted;
@@ -412,5 +412,6 @@ int main(int argc, char **argv) {
   ted.setup(memory, workers, cipher_suite);
   ted.encrypt(pattern);
   ted.decrypt(pattern);
+  EVP_cleanup()
 //  sleep(10);
 }
