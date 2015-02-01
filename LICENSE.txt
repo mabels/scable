@@ -191,6 +191,7 @@ MIT License used by easylogging++.h
       identification within third-party archives.
 
    Copyright [2015] [Meno Abels]
+   Copyright [2015] [Ingo Bente]
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
