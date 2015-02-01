@@ -7,7 +7,7 @@ UNAME_S := $(shell uname -s)
 LDFLAGS=$(DEBUG) -lssl -lcrypto
 CXXFLAGS=$(DEBUG) $(PTHREAD) -std=c++11 -O3
 ifeq ($(UNAME_S), Linux)
-	LD=g++
+	LD=g++ $(PTHREAD)
 	CXX=g++ 
 endif
 ifeq ($(UNAME_S),Darwin)
@@ -26,7 +26,7 @@ $(EXES): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@ 
 
 %: %.o
-	$(CXX) -o $@ $< $(LDFLAGS)
+	$(LD) -o $@ $< $(LDFLAGS)
 
 clean:
 	rm -f $(EXES) $(OBJECTS)
