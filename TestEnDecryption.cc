@@ -1,10 +1,15 @@
 
 #include <iostream>
+#include <array>
 #include <mutex>
 #include <thread>
+#include <condition_variable>
 #include <list>
+#include <queue>
 #include <random>
 #include <algorithm>
+#include <chrono>
+#include <ctime>
 
 #include <openssl/evp.h>
 #include <unistd.h>
@@ -41,51 +46,105 @@ class CountDownLatch {
       return count;
     }
 
+};
 
+template<typename T> class BlockingQueue {
+  private:
+    std::queue<T> queue_;
+    mutable std::mutex mutex_;
+    mutable std::condition_variable cond_;
+  public:
+
+    T pop() {
+      std::unique_lock<std::mutex> mlock(mutex_);
+      while (queue_.empty()) {
+        cond_.wait(mlock);
+      }
+      auto item = queue_.front();
+      queue_.pop();
+      return item;
+    }
+
+    template <class R, class P>
+      bool pop_wait_for(const std::chrono::duration<R, P> &duration, T *item) {
+        std::unique_lock<std::mutex> mlock(mutex_);
+        while (queue_.empty()) {
+          if (cond_.wait_for(mlock, duration) != std::cv_status::no_timeout) {
+            return false;
+          }
+        }
+        *item = queue_.front();
+        queue_.pop();
+        return true;
+      }
+
+    void pop(T& item) {
+      std::unique_lock<std::mutex> mlock(mutex_);
+      while (queue_.empty()) {
+        cond_.wait(mlock);
+      }
+      item = queue_.front();
+      queue_.pop();
+    }
+
+    void push(const T& item)
+    {
+      std::unique_lock<std::mutex> mlock(mutex_);
+      queue_.push(item);
+      mlock.unlock();
+      cond_.notify_one();
+    }
 };
 
 class BenchMark {
   private:
-    struct timeval start;
-    struct timeval end;
+    std::chrono::time_point<std::chrono::high_resolution_clock> start;
+    std::chrono::time_point<std::chrono::high_resolution_clock> end;
 
   public:
-    BenchMark() {
-      gettimeofday(&start, 0);
+    BenchMark() : start(std::chrono::high_resolution_clock::now()) {
     }
 
     void done() {
-      gettimeofday(&end, 0);
+      end = std::chrono::high_resolution_clock::now();
     }
-    float takes() const {
-      struct timeval result;
-      timeval_subtract (&result, end, start);
-      return result.tv_sec + (result.tv_usec/1000000.0);
-    }
-
-    static int timeval_subtract (struct timeval *result, const struct timeval &x, const struct timeval &_y) {
-      /* Perform the carry for the later subtraction by updating y. */
-      struct timeval y = _y;
-      if (x.tv_usec < y.tv_usec) {
-        int nsec = (y.tv_usec - x.tv_usec) / 1000000 + 1;
-        y.tv_usec -= 1000000 * nsec;
-        y.tv_sec += nsec;
-      }
-      if (x.tv_usec - y.tv_usec > 1000000) {
-        int nsec = (x.tv_usec - y.tv_usec) / 1000000;
-        y.tv_usec += 1000000 * nsec;
-        y.tv_sec -= nsec;
-      }
-
-      /* Compute the time remaining to wait.
-         tv_usec is certainly positive. */
-      result->tv_sec = x.tv_sec - y.tv_sec;
-      result->tv_usec = x.tv_usec - y.tv_usec;
-
-      /* Return 1 if result is negative. */
-      return x.tv_sec < y.tv_sec;
+    double takes() const {
+      std::chrono::duration<double> elapsed_seconds = end - start;
+      return elapsed_seconds.count();
     }
 
+};
+
+class QueueItem {
+  private:
+    unsigned char data[2048];
+    int size;
+    unsigned char *refPtr;
+    int refSize;
+  public:
+    typedef QueueItem *Ptr;
+    unsigned char *getData() {
+      return data;
+    }
+    int getDataSizeOf() {
+      return sizeof(data);
+    }
+    int getSize() const {
+      return size;
+    }
+    void setSize(int _size) {
+      size = _size;
+    }
+    void setRefPtr(unsigned char *_refPtr, int _refSize) {
+      refPtr = _refPtr;
+      refSize = _refSize;
+    }
+    unsigned char *getRefPtr() {
+      return refPtr;
+    }
+    int getRefSize() const {
+      return refSize;
+    }
 };
 
 class Result {
@@ -107,6 +166,8 @@ class Result {
     mutable std::mutex results_mutex;
     std::list<Data> results;
   public:
+    BlockingQueue<QueueItem::Ptr> toProducer;
+    BlockingQueue<QueueItem::Ptr> toConsumer;
     Result(int countDown) : cdl(countDown) {
     }
     void countDown(Data &result) {
@@ -189,23 +250,116 @@ class Patterer {
     }
 };
 
+class OpenSSL {
+  private:
+    std::string cipher_suite;
+    const EVP_CIPHER *cipher;
+    unsigned char *password;
+    unsigned char *iv;
+  public:
+    OpenSSL() {
+      OpenSSL_add_all_algorithms();
+    }
+    std::string& getCipherSuite() {
+      return cipher_suite;
+    }
+
+    void setPassword(unsigned char *password) {
+      this->password = password;
+    }
+    void setIv(unsigned char *iv) {
+      this->iv = iv;
+    }
+
+    unsigned char* getPassword() {
+      return password;
+    }
+
+    unsigned char* getIv() {
+      return iv;
+    }
+
+    void setCipherSuite(std::string &name) {
+      cipher = EVP_get_cipherbyname(name.c_str());
+      if (!cipher) {
+        LOG(ERROR) << "EVP_get_cipherbyname failed. Check your cipher suite string.";
+      }
+    }
+
+    ~OpenSSL() {
+      EVP_cleanup();
+    }
+
+    size_t chunked_size(size_t size) {
+      return ((size/EVP_MAX_MD_SIZE)+1)*EVP_MAX_MD_SIZE;
+    }
+    const EVP_CIPHER *getCipher() const {
+      return cipher;
+    }
+    const char *getCipherName() {
+      return EVP_CIPHER_name(this->cipher);
+    }
+    class Context {
+      protected: 
+        EVP_CIPHER_CTX *ctx;
+        OpenSSL &openssl;
+      public:
+        Context(OpenSSL &_openssl) : openssl(_openssl) {
+          ctx = EVP_CIPHER_CTX_new();
+        }
+        ~Context() {
+          EVP_CIPHER_CTX_free(ctx);
+        }
+        const char *getCipherName() {
+          return openssl.getCipherName();
+        }
+    };
+    class Encryptor : public Context {
+      public: 
+        Encryptor(OpenSSL &openssl) : Context(openssl) {
+          EVP_EncryptInit(ctx, openssl.getCipher(), openssl.getPassword(), openssl.getIv());
+        }
+        size_t encrypt(unsigned char *in, int inSize, unsigned char *out, size_t outSize) {
+          int len;
+          EVP_EncryptUpdate(ctx, out, &len, in, inSize);
+          int result_len = len;
+          EVP_EncryptFinal(ctx, out + len, &len);
+          return result_len + len;
+        }
+    };
+    class Decryptor : public Context {
+      public:
+        Decryptor(OpenSSL &openssl) : Context(openssl) {
+          EVP_DecryptInit(ctx, openssl.getCipher(), openssl.getPassword(), openssl.getIv());
+        }
+        size_t decrypt(unsigned char *in, int inSize, unsigned char *out, size_t outSize) {
+          int len;
+          EVP_DecryptUpdate(ctx, out, &len, in, inSize);
+          int result_len = len;
+          EVP_DecryptFinal(ctx, out + len, &len);
+          return result_len + len;
+        }
+    };
+      
+};
+
 class ActionEncrypt {
   private:
     Result& result;
     unsigned char *data;
     const long long size;
     const int pattern;
-    const EVP_CIPHER *cipher;
+    OpenSSL &openssl;
 
     std::thread th;
 
   public:
 
-    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const EVP_CIPHER *_cipher):
-      result(_result), pattern(_pattern), data(_data), size(_size), cipher(_cipher) { }
+    ActionEncrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, OpenSSL &_openssl):
+      result(_result), pattern(_pattern), data(_data), size(_size), openssl(_openssl) { }
 
     ActionEncrypt(ActionEncrypt &other) :
-      result(other.result), pattern(other.pattern), data(other.data), size(other.size) { }
+      result(other.result), pattern(other.pattern), data(other.data), size(other.size), openssl(other.openssl) { }
     ~ActionEncrypt() {
       th.join();
     }
@@ -217,33 +371,24 @@ class ActionEncrypt {
 
     void run() {
       std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
-      EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-
+      OpenSSL::Encryptor ctx(openssl);
       unsigned char ciphertext[8192];
 
-      LOG(INFO) << "ActionEncrypt::run:cipher=" << EVP_CIPHER_name(this->cipher);
+      LOG(INFO) << "ActionEncrypt::run:cipher=" << openssl.getCipherName();
       Result::Data bench;
       long long totalSize = 0;
-      EVP_EncryptInit(ctx, this->cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
           LOG(INFO) << "ActionEncrypt::run:=" << this << " " << i << " of " << pattern;
         }
-        int len = sizeof(ciphertext);
-        int result_len = 0;
-        //LOG(INFO) << "in-" << pat->size << ":" << (long long)data << ":" << (long long)data+size << ":" << (long long)pat->packet;
-        EVP_EncryptUpdate(ctx, ciphertext, &len, pat->packet, pat->size);
-        //LOG(INFO) << "out-" << pat->size << ":" << len;
-        result_len = len;
-        EVP_EncryptFinal(ctx, ciphertext + result_len, &len);
-        result_len += len;
+        ctx.encrypt(pat->packet, pat->size, ciphertext, sizeof(ciphertext));
         totalSize += pat->size;
       }
       bench.done();
       bench.totalSize = totalSize;
-      LOG(INFO) << "ActionEncrypt::run:DONE=" << this << " size=" << totalSize << " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
-      EVP_CIPHER_CTX_free(ctx);
+      LOG(INFO) << "ActionEncrypt::run:DONE=" << this << " size=" << totalSize << 
+        " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
       result.countDown(bench);
     }
 };
@@ -254,18 +399,18 @@ class ActionDecrypt {
     unsigned char *data;
     const long long size;
     const int pattern;
-    const EVP_CIPHER *cipher;
+    OpenSSL &openssl;
 
     std::thread th;
 
   public:
 
-    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, const EVP_CIPHER *_cipher) :
-      result(_result), pattern(_pattern), data(_data), size(_size), cipher(_cipher) {
+    ActionDecrypt(Result& _result, int _pattern, unsigned char *_data, long long _size, OpenSSL &_openssl) :
+      result(_result), pattern(_pattern), data(_data), size(_size), openssl(_openssl) {
       }
 
     ActionDecrypt(ActionDecrypt &other) :
-      result(other.result), pattern(other.pattern), data(other.data), size(other.size) {
+      result(other.result), pattern(other.pattern), data(other.data), size(other.size), openssl(other.openssl) {
       }
     ~ActionDecrypt() {
       th.join();
@@ -278,34 +423,155 @@ class ActionDecrypt {
 
     void run() {
       std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
-
-      EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-
+      OpenSSL::Decryptor ctx(openssl);
       unsigned char ciphertext[8192];
 
-      LOG(INFO) << "ActionDecrypt::run:cipher=" << EVP_CIPHER_name(this->cipher);
+      LOG(INFO) << "ActionDecrypt::run:cipher=" << ctx.getCipherName();
       Result::Data bench;
       long long totalSize = 0;
-      EVP_DecryptInit(ctx, this->cipher, data, data);
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
-          LOG(INFO) << "ActionDecrypt::run:=" << this << " " << i << " of " << pattern;
+          LOG(INFO) << "ActionDecrypt::run:=" << this << " " << i+1 << " of " << pattern;
         }
-        int len = sizeof(ciphertext);
-        int result_len = 0;
-        //LOG(INFO) << "in-" << pat->size << ":" << (long long)data << ":" << (long long)data+size << ":" << (long long)pat->packet;
-        EVP_DecryptUpdate(ctx, ciphertext, &len, pat->packet, pat->size);
-        //LOG(INFO) << "out-" << pat->size << ":" << len;
-        result_len = len;
-        EVP_DecryptFinal(ctx, ciphertext + result_len, &len);
-        result_len += len;
+        ctx.decrypt(pat->packet, pat->size, ciphertext, sizeof(ciphertext));
         totalSize += pat->size;
       }
       bench.done();
       bench.totalSize = totalSize;
-      LOG(INFO) << "ActionDecrypt::run:DONE=" << this << " size=" << totalSize << " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
-      EVP_CIPHER_CTX_free(ctx);
+      LOG(INFO) << "ActionDecrypt::run:DONE=" << this << " size=" << totalSize << 
+        " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
+      result.countDown(bench);
+    }
+};
+
+
+class ActionDecryptConsumer {
+  private:
+    Result& result;
+    unsigned char *data;
+    const long long size;
+    const int pattern;
+    std::thread th;
+    mutable bool request_stop;
+    CountDownLatch &cdl;
+    OpenSSL &openssl;
+
+  public:
+
+    ActionDecryptConsumer(CountDownLatch &_cdl, Result& _result, int _pattern, unsigned char *_data, long long _size, OpenSSL &_openssl) :
+      cdl(_cdl), result(_result), pattern(_pattern), data(_data), size(_size), request_stop(false), openssl(_openssl) {
+      }
+
+    ActionDecryptConsumer(ActionDecryptConsumer &other) :
+      cdl(other.cdl), result(other.result), pattern(other.pattern), data(other.data), size(other.size),
+      request_stop(other.request_stop), openssl(other.openssl) {
+      }
+
+    ~ActionDecryptConsumer() {
+      th.join();
+    }
+
+    ActionDecryptConsumer *start() {
+      th = std::thread(&ActionDecryptConsumer::run, this);
+      return this;
+    }
+
+    void run() {
+      OpenSSL::Decryptor ctx(openssl);
+      LOG(INFO) << "ActionDecryptConsumer::run:cipher=" << openssl.getCipherName() << ":" << pattern;
+      Result::Data bench;
+      long long totalSize = 0;
+      unsigned char ciphertext[8192];
+      bench.totalSize = 0;
+      std::chrono::milliseconds duration(500);
+      for(int cnt = 0; true; ++cnt) {
+        QueueItem::Ptr qi;
+        bool ret = result.toConsumer.pop_wait_for(duration, &qi);
+        if (request_stop) {
+          break;
+        }
+        if (!ret) {
+          continue;
+        }
+        if ((1+cnt)%(pattern/10) == 0) {
+          LOG(INFO) << "ActionDecryptConsumer::run:=" << this << " " << cnt+1 << " of " << pattern;
+        }
+        int result_len = ctx.decrypt(qi->getData(), qi->getSize(), ciphertext, sizeof(ciphertext));
+        if (qi->getRefSize() > result_len) {
+          LOG(ERROR) << "ActionDecryptConsumer::error:size:" << cnt << ":" << qi->getRefSize() << "==" << result_len;
+        }/* else if (memcmp(qi->getRefPtr(), ciphertext, qi->getRefSize())) {
+          LOG(ERROR) << "ActionDecryptConsumer::error:cmp:" << cnt << ":" << (void*)qi->getRefPtr() << "==" << (void*)ciphertext;
+        }*/
+        bench.totalSize += result_len;
+        result.toProducer.push(qi);
+      }
+      bench.done();
+      LOG(INFO) << "ActionDecryptConsumer::run:DONE=" << this << " size=" << bench.totalSize
+        << " time=" << bench.takes() << "=> " << bench.totalSize/1024/1024/bench.takes() << "mb/sec";
+      cdl.countDown();
+      result.countDown(bench);
+    }
+
+    void stop() {
+      LOG(INFO) << "ActionDecryptConsumer::stop";
+      request_stop = true;
+    }
+
+};
+
+class ActionEncryptProducer {
+  private:
+    Result& result;
+    unsigned char *data;
+    const long long size;
+    const int pattern;
+    CountDownLatch &cdl;
+    std::thread th;
+    OpenSSL &openssl;
+
+  public:
+
+    ActionEncryptProducer(CountDownLatch &_cdl, Result& _result,
+        int _pattern, unsigned char *_data, long long _size, OpenSSL &_openssl) :
+      cdl(_cdl), result(_result), pattern(_pattern), data(_data), size(_size), openssl(_openssl) {
+      }
+
+    ActionEncryptProducer(ActionEncryptProducer &other) :
+      cdl(other.cdl), result(other.result), pattern(other.pattern), data(other.data), 
+      size(other.size), openssl(other.openssl) {
+      }
+    ~ActionEncryptProducer() {
+      th.join();
+    }
+
+    ActionEncryptProducer *start() {
+      th = std::thread(&ActionEncryptProducer::run, this);
+      return this;
+    }
+
+    void run() {
+      std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
+      OpenSSL::Encryptor ctx(openssl);
+      LOG(INFO) << "ActionEncryptProducer::run:cipher=" << openssl.getCipherName() << ":" << pattern;
+      Result::Data bench;
+      bench.totalSize = 0;
+      for(int i = 0; i < pattern; ++i) {
+        const Patterer::Pattern *pat = patterns.get()+i;
+        QueueItem::Ptr item = result.toProducer.pop();
+        if (((1+i)%(pattern/10)) == 0) {
+          LOG(INFO) << "ActionEncryptProducer::run:=" << this << " " << i << " of " << pattern;
+        }
+        item->setSize(ctx.encrypt(pat->packet, pat->size, item->getData(), item->getDataSizeOf()));
+        item->setRefPtr(pat->packet, pat->size);
+        //LOG(INFO) << "send to consumer:" << item << ":" << item->getSize() << ":" << (void*)item;
+        result.toConsumer.push(item);
+        bench.totalSize += pat->size;
+      }
+      bench.done();
+      LOG(INFO) << "ActionEncryptProducer::run:DONE=" << this << " size=" << bench.totalSize
+        << " time=" << bench.takes() << "=> " << bench.totalSize/1024/1024/bench.takes() << "mb/sec";
+      cdl.countDown();
       result.countDown(bench);
     }
 };
@@ -317,9 +583,12 @@ class TestEnDecryption {
     long long size;
     long long workers;
     int pattern;
-    const EVP_CIPHER *cipher;
+    OpenSSL &openssl;
 
   public:
+    TestEnDecryption(OpenSSL &_openssl) : openssl(_openssl) {
+    }
+
     ~TestEnDecryption() {
       if (this->data) {
         delete this->data;
@@ -334,18 +603,14 @@ class TestEnDecryption {
         size += i->totalSize;
         time += i->takes();
       }
-      LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024 << "mb " << (size/1024/1024/time)*list.size() << "mb/sec";
+      LOG(INFO) << "total result time=" << time << "sec totalsize=" << size/1024/1024
+        << "mb " << (size/1024/1024/time)*list.size() << "mb/sec";
     }
-    void setup(long long size, int _workers, std::string &cipher_suite) {
+    void setup(long long size, int _workers) {
       LOG(INFO) << "Size=" << size/1024/1024 << "mb workers=" << _workers;
 
-      this->cipher = EVP_get_cipherbyname(cipher_suite.c_str());
-      if (!this->cipher) {
-        LOG(ERROR) << "EVP_get_cipherbyname failed. Check your cipher suite string.";
-        exit(1);
-      }
       this->workers = _workers;
-      this->size = ((size/EVP_MAX_MD_SIZE)+1)*EVP_MAX_MD_SIZE;
+      this->size = openssl.chunked_size(size);
       this->data = new unsigned char[this->size];
       Result result(this->workers);
       std::list<std::unique_ptr<ActionPrepare>> workers;
@@ -355,6 +620,8 @@ class TestEnDecryption {
         workers.push_back(std::unique_ptr<ActionPrepare>(ap));
       }
       LOG(INFO) << "Waiting" ;
+      openssl.setPassword(data);
+      openssl.setIv(data);
       TestEnDecryption::wait(result);
     }
 
@@ -363,7 +630,7 @@ class TestEnDecryption {
       Result result(this->workers);
       std::list<std::unique_ptr<ActionEncrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size, this->cipher))->start();
+        ActionEncrypt *ae = (new ActionEncrypt(result, pattern, data, size, openssl))->start();
         workers.push_back(std::unique_ptr<ActionEncrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
@@ -375,10 +642,46 @@ class TestEnDecryption {
       Result result(this->workers);
       std::list<std::unique_ptr<ActionDecrypt>> workers;
       for (long long i = 0; i < this->workers; ++i) {
-        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size, this->cipher))->start();
+        ActionDecrypt *ae = (new ActionDecrypt(result, pattern, data, size, openssl))->start();
         workers.push_back(std::unique_ptr<ActionDecrypt>(ae));
       }
       LOG(INFO) << "Waiting" ;
+      TestEnDecryption::wait(result);
+    }
+
+    void endecrypt(int pattern) {
+      const int my_workers = workers / 2;
+      LOG(INFO) << "Pattern=" << pattern << " workers=" << my_workers;
+      Result result(workers);
+      std::array<QueueItem, 128> queueItems;
+      for (int i = 0; i < queueItems.size(); ++i) {
+        QueueItem::Ptr my = &queueItems[i];
+        result.toProducer.push(my);
+      }
+      // Start Consumer
+      typedef std::list<std::unique_ptr<ActionDecryptConsumer>> ADCWorkers;
+      ADCWorkers lst_adcworkers;
+      CountDownLatch adc_cdl(my_workers);
+      for (int i = 0; i < my_workers; ++i) {
+        ActionDecryptConsumer *adc = (new ActionDecryptConsumer(adc_cdl, result, pattern, data, size, openssl))->start();
+        lst_adcworkers.push_back(std::unique_ptr<ActionDecryptConsumer>(adc));
+      }
+      typedef std::list<std::unique_ptr<ActionEncryptProducer>> AECWorkers;
+      AECWorkers lst_aecworkers;
+      CountDownLatch aec_cdl(my_workers);
+      for (int i = 0; i < my_workers; ++i) {
+        ActionEncryptProducer *aec = (new ActionEncryptProducer(aec_cdl, result, pattern, data, size, openssl))->start();
+        lst_aecworkers.push_back(std::unique_ptr<ActionEncryptProducer>(aec));
+      }
+      LOG(INFO) << "AEC Waiting";
+      aec_cdl.wait();
+      LOG(INFO) << "AEC Waiting Completed:" << lst_adcworkers.size();
+      for (ADCWorkers::iterator i = lst_adcworkers.begin(); i != lst_adcworkers.end(); ++i) {
+        (*i)->stop();
+      }
+      LOG(INFO) << "ADC Waiting";
+      adc_cdl.wait();
+      LOG(INFO) << "ADC Waiting Completed";
       TestEnDecryption::wait(result);
     }
 
@@ -387,13 +690,13 @@ class TestEnDecryption {
 INITIALIZE_EASYLOGGINGPP
 int main(int argc, char **argv) {
   START_EASYLOGGINGPP(argc, argv);
-  OpenSSL_add_all_algorithms();
-  std::string cipher_suite("aes-256-cbc");
 
-  TestEnDecryption ted;
+  OpenSSL openssl;
+  TestEnDecryption ted(openssl);
   long long memory = 1024 * 1024 * 128;
   int workers = 2;
   int pattern = 100000;
+  std::string cipher_suite("aes-128-cbc");
   if (argc >= 2) {
     std::stringstream(argv[1]) >> memory;
     memory *= 1024 * 1024;
@@ -410,9 +713,9 @@ int main(int argc, char **argv) {
   if (argc >= 5) {
     std::stringstream(argv[4]) >> cipher_suite;
   }
-  ted.setup(memory, workers, cipher_suite);
+  openssl.setCipherSuite(cipher_suite);
+  ted.setup(memory, (workers/2)*2);
   ted.encrypt(pattern);
   ted.decrypt(pattern);
-  EVP_cleanup();
-//  sleep(10);
+  ted.endecrypt(pattern);
 }
