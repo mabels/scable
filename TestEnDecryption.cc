@@ -299,6 +299,9 @@ class OpenSSL {
     const char *getCipherName() {
       return EVP_CIPHER_name(this->cipher);
     }
+    ENGINE* getEngine() {
+      return NULL;
+    }
     class Context {
       protected: 
         EVP_CIPHER_CTX *ctx;
@@ -313,30 +316,22 @@ class OpenSSL {
         const char *getCipherName() {
           return openssl.getCipherName();
         }
-    };
-    class Encryptor : public Context {
-      public: 
-        Encryptor(OpenSSL &openssl) : Context(openssl) {
-          EVP_EncryptInit(ctx, openssl.getCipher(), openssl.getPassword(), openssl.getIv());
-        }
         size_t encrypt(unsigned char *in, int inSize, unsigned char *out, size_t outSize) {
+          EVP_EncryptInit_ex(ctx, openssl.getCipher(), openssl.getEngine(),
+                               openssl.getPassword(), openssl.getIv());
           int len;
           EVP_EncryptUpdate(ctx, out, &len, in, inSize);
           int result_len = len;
           EVP_EncryptFinal(ctx, out + len, &len);
           return result_len + len;
         }
-    };
-    class Decryptor : public Context {
-      public:
-        Decryptor(OpenSSL &openssl) : Context(openssl) {
-          EVP_DecryptInit(ctx, openssl.getCipher(), openssl.getPassword(), openssl.getIv());
-        }
         size_t decrypt(unsigned char *in, int inSize, unsigned char *out, size_t outSize) {
+          EVP_DecryptInit_ex(ctx, openssl.getCipher(), openssl.getEngine(), 
+                                  openssl.getPassword(), openssl.getIv());
           int len;
           EVP_DecryptUpdate(ctx, out, &len, in, inSize);
           int result_len = len;
-          EVP_DecryptFinal(ctx, out + len, &len);
+          EVP_DecryptFinal_ex(ctx, out + len, &len);
           return result_len + len;
         }
     };
@@ -371,7 +366,7 @@ class ActionEncrypt {
 
     void run() {
       std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
-      OpenSSL::Encryptor ctx(openssl);
+      OpenSSL::Context ctx(openssl);
       unsigned char ciphertext[8192];
 
       LOG(INFO) << "ActionEncrypt::run:cipher=" << openssl.getCipherName();
@@ -380,7 +375,7 @@ class ActionEncrypt {
       for(int i = 0; i < pattern; ++i) {
         const Patterer::Pattern *pat = patterns.get()+i;
         if (((1+i)%(size/10)) == 0) {
-          LOG(INFO) << "ActionEncrypt::run:=" << this << " " << i << " of " << pattern;
+          LOG(INFO) << "ActionEncrypt::run:=" << this << " " << i+1 << " of " << pattern;
         }
         ctx.encrypt(pat->packet, pat->size, ciphertext, sizeof(ciphertext));
         totalSize += pat->size;
@@ -423,7 +418,7 @@ class ActionDecrypt {
 
     void run() {
       std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
-      OpenSSL::Decryptor ctx(openssl);
+      OpenSSL::Context ctx(openssl);
       unsigned char ciphertext[8192];
 
       LOG(INFO) << "ActionDecrypt::run:cipher=" << ctx.getCipherName();
@@ -441,6 +436,67 @@ class ActionDecrypt {
       bench.totalSize = totalSize;
       LOG(INFO) << "ActionDecrypt::run:DONE=" << this << " size=" << totalSize << 
         " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
+      result.countDown(bench);
+    }
+};
+
+class ActionBack2Back {
+  private:
+    Result& result;
+    unsigned char *data;
+    const long long size;
+    const int pattern;
+    OpenSSL &openssl;
+
+    std::thread th;
+
+  public:
+
+    ActionBack2Back(Result& _result, int _pattern, unsigned char *_data, long long _size, OpenSSL &_openssl) :
+      result(_result), pattern(_pattern), data(_data), size(_size), openssl(_openssl) {
+      }
+
+    ActionBack2Back(ActionBack2Back &other) :
+      result(other.result), pattern(other.pattern), data(other.data), size(other.size), openssl(other.openssl) {
+      }
+    ~ActionBack2Back() {
+      th.join();
+    }
+
+    ActionBack2Back *start() {
+      th = std::thread(&ActionBack2Back::run, this);
+      return this;
+    }
+
+    void run() {
+      std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
+      OpenSSL::Context enctx(openssl);
+      OpenSSL::Context dectx(openssl);
+      unsigned char ciphertext[8192];
+      unsigned char resulttext[8192];
+
+      LOG(INFO) << "ActionBack2Back::run:cipher=" << enctx.getCipherName();
+      Result::Data bench;
+      bench.totalSize = 0;
+      for(int i = 0; i < pattern; ++i) {
+        const Patterer::Pattern *pat = patterns.get()+i;
+        if (((1+i)%(size/10)) == 0) {
+          LOG(INFO) << "ActionBack2Back::run:=" << this << " " << i+1 << " of " << pattern;
+        }
+        int cipertext_len = enctx.encrypt(pat->packet, pat->size, ciphertext, sizeof(ciphertext));
+        bench.totalSize += pat->size;
+        int result_len = dectx.decrypt(ciphertext, cipertext_len, resulttext, sizeof(resulttext));
+        bench.totalSize += pat->size;
+        //LOG(INFO) << i << ">" << pat->size << "==" << result_len << ":" << (void*)pat->packet << "|" << (void*)resulttext;
+        if (pat->size > result_len) {
+          LOG(ERROR) << "ActionBack2Back::error:size:" << i << ":" << pat->size << "==" << result_len;
+        } else if (memcmp(pat->packet, resulttext, pat->size)) {
+          LOG(ERROR) << "ActionBack2Back::error:cmp:" << i;
+        }
+      }
+      bench.done();
+      LOG(INFO) << "ActionBack2Back::run:DONE=" << this << " size=" << bench.totalSize << 
+        " time=" << bench.takes() << "=> " << bench.totalSize/1024/1024/bench.takes() << "mb/sec";
       result.countDown(bench);
     }
 };
@@ -478,7 +534,7 @@ class ActionDecryptConsumer {
     }
 
     void run() {
-      OpenSSL::Decryptor ctx(openssl);
+      OpenSSL::Context ctx(openssl);
       LOG(INFO) << "ActionDecryptConsumer::run:cipher=" << openssl.getCipherName() << ":" << pattern;
       Result::Data bench;
       long long totalSize = 0;
@@ -500,9 +556,9 @@ class ActionDecryptConsumer {
         int result_len = ctx.decrypt(qi->getData(), qi->getSize(), ciphertext, sizeof(ciphertext));
         if (qi->getRefSize() > result_len) {
           LOG(ERROR) << "ActionDecryptConsumer::error:size:" << cnt << ":" << qi->getRefSize() << "==" << result_len;
-        }/* else if (memcmp(qi->getRefPtr(), ciphertext, qi->getRefSize())) {
+        } else if (memcmp(qi->getRefPtr(), ciphertext, qi->getRefSize())) {
           LOG(ERROR) << "ActionDecryptConsumer::error:cmp:" << cnt << ":" << (void*)qi->getRefPtr() << "==" << (void*)ciphertext;
-        }*/
+        }
         bench.totalSize += result_len;
         result.toProducer.push(qi);
       }
@@ -552,7 +608,7 @@ class ActionEncryptProducer {
 
     void run() {
       std::unique_ptr<Patterer::Pattern> patterns(Patterer::create_pattern(pattern, data, size));
-      OpenSSL::Encryptor ctx(openssl);
+      OpenSSL::Context ctx(openssl);
       LOG(INFO) << "ActionEncryptProducer::run:cipher=" << openssl.getCipherName() << ":" << pattern;
       Result::Data bench;
       bench.totalSize = 0;
@@ -560,7 +616,7 @@ class ActionEncryptProducer {
         const Patterer::Pattern *pat = patterns.get()+i;
         QueueItem::Ptr item = result.toProducer.pop();
         if (((1+i)%(pattern/10)) == 0) {
-          LOG(INFO) << "ActionEncryptProducer::run:=" << this << " " << i << " of " << pattern;
+          LOG(INFO) << "ActionEncryptProducer::run:=" << this << " " << i+1 << " of " << pattern;
         }
         item->setSize(ctx.encrypt(pat->packet, pat->size, item->getData(), item->getDataSizeOf()));
         item->setRefPtr(pat->packet, pat->size);
@@ -649,6 +705,19 @@ class TestEnDecryption {
       TestEnDecryption::wait(result);
     }
 
+    void back2back(int pattern) {
+      LOG(INFO) << "Pattern=" << pattern << " workers=" << this->workers;
+      int w = this->workers;
+      Result result(w);
+      std::list<std::unique_ptr<ActionBack2Back>> workers;
+      for (long long i = 0; i < w; ++i) {
+        ActionBack2Back *ab = (new ActionBack2Back(result, pattern, data, size, openssl))->start();
+        workers.push_back(std::unique_ptr<ActionBack2Back>(ab));
+      }
+      LOG(INFO) << "Waiting" ;
+      TestEnDecryption::wait(result);
+    }
+
     void endecrypt(int pattern) {
       const int my_workers = workers / 2;
       LOG(INFO) << "Pattern=" << pattern << " workers=" << my_workers;
@@ -717,5 +786,6 @@ int main(int argc, char **argv) {
   ted.setup(memory, (workers/2)*2);
   ted.encrypt(pattern);
   ted.decrypt(pattern);
+  ted.back2back(pattern);
   ted.endecrypt(pattern);
 }
