@@ -17,84 +17,8 @@
 #define ELPP_THREAD_SAFE
 #include "easylogging++.h"
 
-
-class CountDownLatch {
-  private:
-    mutable std::mutex count_mutex;
-    int count;
-    mutable std::mutex wait_all;
-
-  public:
-    CountDownLatch(int _count) : count(_count) {
-      wait_all.lock();
-    }
-
-    void wait() {
-      std::lock_guard<std::mutex> lock(wait_all);
-    }
-
-    void countDown() {
-      std::lock_guard<std::mutex> lock(count_mutex);
-      --count;
-      if (count == 0) {
-        wait_all.unlock();
-      }
-    }
-
-    int getCount() const {
-      std::lock_guard<std::mutex> lock(count_mutex);
-      return count;
-    }
-
-};
-
-template<typename T> class BlockingQueue {
-  private:
-    std::queue<T> queue_;
-    mutable std::mutex mutex_;
-    mutable std::condition_variable cond_;
-  public:
-
-    T pop() {
-      std::unique_lock<std::mutex> mlock(mutex_);
-      while (queue_.empty()) {
-        cond_.wait(mlock);
-      }
-      auto item = queue_.front();
-      queue_.pop();
-      return item;
-    }
-
-    template <class R, class P>
-      bool pop_wait_for(const std::chrono::duration<R, P> &duration, T *item) {
-        std::unique_lock<std::mutex> mlock(mutex_);
-        while (queue_.empty()) {
-          if (cond_.wait_for(mlock, duration) != std::cv_status::no_timeout) {
-            return false;
-          }
-        }
-        *item = queue_.front();
-        queue_.pop();
-        return true;
-      }
-
-    void pop(T& item) {
-      std::unique_lock<std::mutex> mlock(mutex_);
-      while (queue_.empty()) {
-        cond_.wait(mlock);
-      }
-      item = queue_.front();
-      queue_.pop();
-    }
-
-    void push(const T& item)
-    {
-      std::unique_lock<std::mutex> mlock(mutex_);
-      queue_.push(item);
-      mlock.unlock();
-      cond_.notify_one();
-    }
-};
+#include "count_down_latch.h"
+#include "blocking_queue.h"
 
 class BenchMark {
   private:
@@ -303,7 +227,7 @@ class OpenSSL {
       return NULL;
     }
     class Context {
-      protected: 
+      protected:
         EVP_CIPHER_CTX *ctx;
         OpenSSL &openssl;
       public:
@@ -326,7 +250,7 @@ class OpenSSL {
           return result_len + len;
         }
         size_t decrypt(unsigned char *in, int inSize, unsigned char *out, size_t outSize) {
-          EVP_DecryptInit_ex(ctx, openssl.getCipher(), openssl.getEngine(), 
+          EVP_DecryptInit_ex(ctx, openssl.getCipher(), openssl.getEngine(),
                                   openssl.getPassword(), openssl.getIv());
           int len;
           EVP_DecryptUpdate(ctx, out, &len, in, inSize);
@@ -335,7 +259,7 @@ class OpenSSL {
           return result_len + len;
         }
     };
-      
+
 };
 
 class ActionEncrypt {
@@ -382,7 +306,7 @@ class ActionEncrypt {
       }
       bench.done();
       bench.totalSize = totalSize;
-      LOG(INFO) << "ActionEncrypt::run:DONE=" << this << " size=" << totalSize << 
+      LOG(INFO) << "ActionEncrypt::run:DONE=" << this << " size=" << totalSize <<
         " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
       result.countDown(bench);
     }
@@ -434,7 +358,7 @@ class ActionDecrypt {
       }
       bench.done();
       bench.totalSize = totalSize;
-      LOG(INFO) << "ActionDecrypt::run:DONE=" << this << " size=" << totalSize << 
+      LOG(INFO) << "ActionDecrypt::run:DONE=" << this << " size=" << totalSize <<
         " time=" << bench.takes() << "=> " << totalSize/1024/1024/bench.takes() << "mb/sec";
       result.countDown(bench);
     }
@@ -495,7 +419,7 @@ class ActionBack2Back {
         }
       }
       bench.done();
-      LOG(INFO) << "ActionBack2Back::run:DONE=" << this << " size=" << bench.totalSize << 
+      LOG(INFO) << "ActionBack2Back::run:DONE=" << this << " size=" << bench.totalSize <<
         " time=" << bench.takes() << "=> " << bench.totalSize/1024/1024/bench.takes() << "mb/sec";
       result.countDown(bench);
     }
@@ -594,7 +518,7 @@ class ActionEncryptProducer {
       }
 
     ActionEncryptProducer(ActionEncryptProducer &other) :
-      cdl(other.cdl), result(other.result), pattern(other.pattern), data(other.data), 
+      cdl(other.cdl), result(other.result), pattern(other.pattern), data(other.data),
       size(other.size), openssl(other.openssl) {
       }
     ~ActionEncryptProducer() {
