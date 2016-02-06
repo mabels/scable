@@ -1,32 +1,58 @@
 #ifndef __scable_crypto_workers__
 #define __scable_crypto_workers__
 
+#include "rte.h"
 #include "rte_controller.h"
+#include "launch_params.h"
+#include "cipher_worker.h"
+#include "decipher_worker.h"
 
 class RteController;
 
-template<
 class CryptoWorkers {
 private:
-  std::vector<std::unique_ptr<CryptoWorker>> workers;
-  static int launch(void *dummy) {
-    static_cast<CryptoWorker *>(dummy)->main_loop();
-    return 0;
-  }
-  CryptoWorker(RteController &rtc) : rtc(rtc) {
+  static const int RTE_RING_SZ = 1024;
+  std::vector<LaunchParams> workers;
+  struct rte_distributor *distributor;
+  struct rte_ring *outputRing;
+  RteController &rtc;
+  CryptoWorkers(RteController &rtc) : rtc(rtc) {
   }
 public:
+  static CryptoWorkers *create(RteController &rtc,
+    LaunchParams (*factory)(CryptoWorkers &cws), int numWorkers) {
+    auto cws = new CryptoWorkers(rtc);
+    cws->distributor = rte_distributor_create("cryptWorkers", rte_socket_id(), numWorkers);
+    if (cws->distributor == NULL) {
+      LOG(ERROR) << "Cannot create distributor";
+      return 0;
+    }
 
-  static CryptoWorkers *start(RteController &rtc, int num) {
-    auto cw = new CryptoWorkers(rtc);
+    cws->outputRing = rte_ring_create("cryptoWorkers:OutputRing", RTE_RING_SZ,
+                rte_socket_id(), RING_F_SC_DEQ);
+    if (cws->outputRing == NULL) {
+      LOG(ERROR) << "Cannot create output ring";
+      return 0;
+    }
 
-    return cw;
+    cws->workers.resize(numWorkers);
+    for(int i = 0; i < numWorkers; ++i) {
+      auto lp = (*factory)(*cws);
+      rtc.launch(lp.launch, lp.context);
+      cws->workers[i] = lp;
+    }
+    return cws;
   }
-
-  RxWorkers *addPort(uint16_t portid);
 
   RteController &getRtc() const {
     return rtc;
+  }
+
+  struct rte_distributor *getDistributor() const {
+    return distributor;
+  }
+  struct rte_ring *getOutputRing() const {
+    return outputRing;
   }
 };
 

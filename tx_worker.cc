@@ -5,8 +5,8 @@
 #include "easylogging++.h"
 
 #include "rte.h"
-#include "rx_worker.h"
-#include "rx_workers.h"
+#include "tx_worker.h"
+#include "tx_workers.h"
 #include "crypto_workers.h"
 
 #ifdef XXXXX
@@ -48,11 +48,11 @@ void tx_handler() {
 }
 #endif
 
-void RxWorker::main_loop() {
+void TxWorker::main_loop() {
   lcore_id = rte_lcore_id();
   const uint64_t drain_tsc =
       (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * port.BURST_TX_DRAIN_US;
-  LOG(INFO) << "entering RxWorker::main_loop on lcore " << lcore_id;
+  LOG(INFO) << "entering TxWorker::main_loop on lcore " << lcore_id;
 
   // struct rte_mbuf *pkts_burst[MAX_PKT_BURST];
   // struct rte_mbuf *m;

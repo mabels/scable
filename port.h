@@ -41,10 +41,9 @@ class Port {
     } portStatistics = {0, 0, 0};
 
     unsigned lcore_id = 0;
-    const RxWorkers &rxWorkers;
   public:
-    Port(const RxWorkers &rxWorkers, uint16_t portid)
-      : portid(portid), rxWorkers(rxWorkers) {
+    Port(uint16_t portid)
+      : portid(portid) {
       LOG(INFO) << "Created PortId for " << portid;
       rte_eth_dev_info_get(portid, &dev_info);
       memset(&qconf, 0, sizeof(qconf));

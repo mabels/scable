@@ -3,6 +3,10 @@
 
 #include "rte_controller.h"
 #include "rx_workers.h"
+#include "tx_workers.h"
+#include "crypto_workers.h"
+#include "decipher_worker.h"
+#include "cipher_worker.h"
 
 bool RteController::start(int argc, char **argv) {
   int ret = rte.eal_init(argc, argv);
@@ -38,10 +42,15 @@ bool RteController::start(int argc, char **argv) {
   }
   usedLcores[rte_get_master_lcore()] = true;
 
-  const int numCryptWorkers = 2;
-  std::unique_ptr<CryptoWorkers> cryptoWorkers(new CryptoWorkers(*this, numCryptWorkers));
+  const int numCryptWorkers = 1;
+  std::unique_ptr<CryptoWorkers> cipherWorkers(CryptoWorkers::create(*this, CipherWorker::factory, numCryptWorkers));
+  std::unique_ptr<CryptoWorkers> decipherWorkers(CryptoWorkers::create(*this, DecipherWorker::factory, numCryptWorkers));
 
-  std::unique_ptr<RxWorkers> rxWorkers((new RxWorkers(*this, *cryptoWorkers))->addPort(0));
+  std::unique_ptr<RxWorkers> rxWorkers((new RxWorkers(*this, *cipherWorkers))->addPort(0));
+  std::unique_ptr<TxWorkers> cipherTxWorkers((new TxWorkers(*this, *cipherWorkers))->addPort(1));
+
+  std::unique_ptr<RxWorkers> decipherRxWorkers((new RxWorkers(*this, *decipherWorkers))->addPort(1));
+  std::unique_ptr<TxWorkers> txWorkers((new TxWorkers(*this, *decipherWorkers))->addPort(0));
   //std::unique_ptr<CryptWorkers> cryptController(CryptWorkers.start(this, 2));
 
   // for (uint8_t portid = 0; portid < ports; ++portid) {

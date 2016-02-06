@@ -1,27 +1,27 @@
-#ifndef __scable_rx_workers__
-#define __scable_rx_workers__
+#ifndef __scable_tx_workers__
+#define __scable_tx_workers__
 
 #include "rte_controller.h"
-#include "rx_worker.h"
+#include "tx_worker.h"
 
 class RteController;
 class CryptoWorkers;
 
 class Port;
 
-class RxWorkers {
+class TxWorkers {
 private:
-  std::vector<std::unique_ptr<RxWorker>> workers;
+  std::vector<std::unique_ptr<TxWorker>> workers;
   typedef std::map<uint16_t, Port> Ports;
   Ports ports;
   RteController &rtc;
   CryptoWorkers &cws;
 public:
-  RxWorkers(RteController &rtc, CryptoWorkers &cws)
+  TxWorkers(RteController &rtc, CryptoWorkers &cws)
     : rtc(rtc), cws(cws) {
   }
 
-  RxWorkers *addPort(uint16_t portid);
+  TxWorkers *addPort(uint16_t portid);
 
   RteController &getRtc() const {
     return rtc;

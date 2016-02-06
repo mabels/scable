@@ -1,24 +1,24 @@
-#ifndef __scable_rx_worker__
-#define __scable_rx_worker__
+#ifndef __scable_tx_worker__
+#define __scable_tx_worker__
 
 #include "port.h"
 
-class RxWorkers;
+class TxWorkers;
 
-class RxWorker {
+class TxWorker {
   private:
     Port &port;
-    const RxWorkers &rxWorkers;
+    const TxWorkers &rxWorkers;
     int lcore_id;
     struct rte_mbuf *pkts_burst[Port::MAX_PKT_BURST];
     void main_loop();
   public:
     static int launch(void *dummy) {
-      static_cast<RxWorker *>(dummy)->main_loop();
+      static_cast<TxWorker *>(dummy)->main_loop();
       return 0;
     }
-    
-    RxWorker(const RxWorkers &rxWorkers, Port &port)
+
+    TxWorker(const TxWorkers &rxWorkers, Port &port)
       : port(port), rxWorkers(rxWorkers) {
     }
 

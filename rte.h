@@ -24,6 +24,7 @@
 #include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
+#include <rte_distributor.h>
 
 #include <iostream>
 
