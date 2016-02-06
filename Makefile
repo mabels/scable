@@ -66,7 +66,7 @@ LDFLAGS=\
 # 	-lrte_pmd_e1000 \
 # 	-lrte_pmd_ixgbe \
 # 	-ldl
-# 
+#
 #	-lrte_pmd_af_packet \
 #	-lrte_kni \
 #	-lethdev \
@@ -94,8 +94,9 @@ OPENSSL=/usr/local/Cellar/openssl/1.0.2e_1
 
 TEST_SOURCES=TestEnDecryption.cc
 TEST_OBJECTS = $(addprefix $(ARCH)/, $(TEST_SOURCES:.cc=.o))
-INTERFACER_SOURCES = scable.cc port_controller.cc rte_controller.cc
+INTERFACER_SOURCES = scable.cc rte_controller.cc port.cc rx_workers.cc rx_worker.cc rte.cc 
 INTERFACER_OBJECTS = $(addprefix $(ARCH)/, $(INTERFACER_SOURCES:.cc=.o))
+INTERFACER_HEADERS = $(addprefix $(ARCH)/, $(INTERFACER_SOURCES:.cc=.h))
 #EXES = $(OBJECTS:.o=)
 #$(ARCH)/TestEnDecryption
 
@@ -120,4 +121,4 @@ $(ARCH)/%: $(ARCH)/%.o
 	$(LD) -o $@ $< $(LDFLAGS)
 
 clean:
-	rm -f $(EXES) $(OBJECTS)
+	rm -rf $(ARCH)/*

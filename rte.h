@@ -25,10 +25,15 @@
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 
+#include <iostream>
+
+
 class Rte {
 public:
   int eal_init(int argc, char **argv) { return rte_eal_init(argc, argv); }
   void exit() { rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n"); }
 };
+
+std::ostream& operator<<(std::ostream &o, const struct ether_addr &ether_addr);
 
 #endif
