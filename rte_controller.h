@@ -5,22 +5,19 @@
 #include <vector>
 #include "rte.h"
 
+#include "lcores.h"
+#include "ports.h"
 
 class RteController {
 private:
-  const static uint16_t NB_MBUF = 8192;
   Rte rte;
-  struct rte_mempool *pktmbuf_pool;
   struct rte_distributor *cryptWorkers;
 
-  std::vector<bool> usedLcores;
+  Ports ports;
+  Lcores lcores;
 
 public:
-  struct rte_mempool *getPktMbufPool() const {
-    return pktmbuf_pool;
-  }
   bool start(int argc, char **argv);
-  bool launch(lcore_function_t *f, void *arg);
 };
 
 #endif

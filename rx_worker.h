@@ -13,10 +13,10 @@ class RxWorker {
     struct rte_mbuf *pkts_burst[Port::MAX_PKT_BURST];
     void main_loop();
   public:
-    static int launch(void *dummy) {
-      static_cast<RxWorker *>(dummy)->main_loop();
-      return 0;
-    }
+    // static int launch(void *dummy) {
+    //   static_cast<RxWorker *>(dummy)->main_loop();
+    //   return 0;
+    // }
     
     RxWorker(const RxWorkers &rxWorkers, Port &port)
       : port(port), rxWorkers(rxWorkers) {

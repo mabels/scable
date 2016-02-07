@@ -12,8 +12,7 @@ class Port;
 class TxWorkers {
 private:
   std::vector<std::unique_ptr<TxWorker>> workers;
-  typedef std::map<uint16_t, Port> Ports;
-  Ports ports;
+
   RteController &rtc;
   CryptoWorkers &cws;
 public:
@@ -21,7 +20,7 @@ public:
     : rtc(rtc), cws(cws) {
   }
 
-  TxWorkers *addPort(uint16_t portid);
+  // TxWorkers *addPort(uint16_t portid);
 
   RteController &getRtc() const {
     return rtc;

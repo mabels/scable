@@ -16,19 +16,22 @@ private:
   struct rte_distributor *distributor;
   struct rte_ring *outputRing;
   RteController &rtc;
+  Rte::Name distName;
+  Rte::Name outpName;
   CryptoWorkers(RteController &rtc) : rtc(rtc) {
   }
 public:
   static CryptoWorkers *create(RteController &rtc,
     LaunchParams (*factory)(CryptoWorkers &cws), int numWorkers) {
     auto cws = new CryptoWorkers(rtc);
-    cws->distributor = rte_distributor_create("cryptWorkers", rte_socket_id(), numWorkers);
+    std::ostringstream distName;
+    cws->distributor = rte_distributor_create(cws->distName("cws:dist:"), rte_socket_id(), numWorkers);
     if (cws->distributor == NULL) {
       LOG(ERROR) << "Cannot create distributor";
       return 0;
     }
 
-    cws->outputRing = rte_ring_create("cryptoWorkers:OutputRing", RTE_RING_SZ,
+    cws->outputRing = rte_ring_create(cws->outpName("cws:outp:"), RTE_RING_SZ,
                 rte_socket_id(), RING_F_SC_DEQ);
     if (cws->outputRing == NULL) {
       LOG(ERROR) << "Cannot create output ring";
@@ -36,11 +39,11 @@ public:
     }
 
     cws->workers.resize(numWorkers);
-    for(int i = 0; i < numWorkers; ++i) {
-      auto lp = (*factory)(*cws);
-      rtc.launch(lp.launch, lp.context);
-      cws->workers[i] = lp;
-    }
+    // for(int i = 0; i < numWorkers; ++i) {
+    //   auto lp = (*factory)(*cws);
+    //   rtc.launch(lp.launch, lp.context);
+    //   cws->workers[i] = lp;
+    // }
     return cws;
   }
 

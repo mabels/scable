@@ -21,7 +21,7 @@ public:
     : rtc(rtc), cws(cws) {
   }
 
-  RxWorkers *addPort(uint16_t portid);
+  //RxWorkers *addPort(uint16_t portid);
 
   RteController &getRtc() const {
     return rtc;

@@ -1,11 +1,11 @@
-#ifndef __scable_portid__
-#define __scable_portid__
+#ifndef __scable_port__
+#define __scable_port__
 
 #include "rte.h"
-class RxWorkers;
 
 class Port {
   public:
+    const static uint16_t NB_MBUF = 8192;
     const static uint8_t BURST_TX_DRAIN_US = 100; /* TX drain every ~100us */
     const static uint8_t MAX_PKT_BURST = 32;
     const static uint8_t MAX_RX_QUEUE_PER_LCORE = 16;
@@ -41,6 +41,11 @@ class Port {
     } portStatistics = {0, 0, 0};
 
     unsigned lcore_id = 0;
+
+    struct rte_mempool *pktmbuf_pool;
+
+    Rte::Name mbufName;
+
   public:
     Port(uint16_t portid)
       : portid(portid) {
@@ -67,6 +72,11 @@ class Port {
     PortStatistics& getPortStatistics() {
       return portStatistics;
     }
+    //
+    // struct rte_mempool *getPktMbufPool() const {
+    //   return pktmbuf_pool;
+    // }
+
 };
 
 #endif

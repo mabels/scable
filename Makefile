@@ -1,6 +1,7 @@
 
 
 RTE_SDK=/root/dpdk-2.2.0
+RTE_SDK=/root/dpdk
 ifeq ($(RTE_SDK),)
 $(error "Please define RTE_SDK environment variable")
 endif

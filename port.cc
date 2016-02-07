@@ -7,7 +7,19 @@
 #include "rx_workers.h"
 
 bool Port::start() {
+
   LOG(INFO) << "Initializing port " << portid;
+
+  /* create the mbuf pool */
+  pktmbuf_pool = rte_pktmbuf_pool_create(mbufName("port:mbuf:"),
+                              NB_MBUF, 32, 0,
+                              RTE_MBUF_DEFAULT_BUF_SIZE,
+                              rte_socket_id());
+  if (pktmbuf_pool == NULL) {
+    LOG(ERROR) << "Cannot init mbuf pool";
+    return false;
+  }
+
   unsigned ret = rte_eth_dev_configure(portid, 1, 1, &port_conf);
   if (ret < 0) {
     LOG(ERROR) << "Cannot configure device: err=" << ret << ", port=" << portid;
@@ -15,7 +27,7 @@ bool Port::start() {
   }
   rte_eth_macaddr_get(portid, &ether_addr);
   ret = rte_eth_rx_queue_setup(portid, 0, nb_rxd, rte_eth_dev_socket_id(portid),
-                               NULL, rxWorkers.getRtc().getPktMbufPool());
+                               NULL, pktmbuf_pool);
   if (ret < 0) {
     LOG(ERROR) << "rte_eth_rx_queue_setup:err=" << ret << ", port=" << portid;
     return false;

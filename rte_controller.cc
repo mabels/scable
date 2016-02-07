@@ -14,43 +14,33 @@ bool RteController::start(int argc, char **argv) {
     LOG(ERROR) << "Invalid EAL arguments";
     return false;
   }
-  /* create the mbuf pool */
-  pktmbuf_pool = rte_pktmbuf_pool_create("mbuf_pool",
-                              NB_MBUF, 32, 0,
-                              RTE_MBUF_DEFAULT_BUF_SIZE,
-                              rte_socket_id());
-  if (pktmbuf_pool == NULL) {
-    LOG(ERROR) << "Cannot init mbuf pool";
-    return false;
-  }
-  uint8_t ports = rte_eth_dev_count();
-  if (ports == 0) {
+  uint8_t portCount = rte_eth_dev_count();
+  if (portCount == 0) {
     LOG(ERROR) << "No ports defined you need exact two";
     return false;
   }
-  if (ports != 2) {
+  if (portCount != 2) {
     LOG(ERROR) << "not the right # of ports defined you need exact two";
     return false;
   }
-
-  int lc;
-  usedLcores.resize(rte_lcore_count());
-  LOG(INFO) << "Setup Lcore Used bitmap:" << rte_lcore_count() << ":" << usedLcores.size();
-  LOG(INFO) << "Lcore Masterid:" << rte_get_master_lcore();
-  RTE_LCORE_FOREACH(lc) {
-      usedLcores.push_back(false);
+  for (int i = 0; i < portCount; ++i) {
+    ports.addPort(i);
   }
-  usedLcores[rte_get_master_lcore()] = true;
+  int lc;
+  RTE_LCORE_FOREACH(lc) {
+      lcores.addLcore(lc);
+  }
 
-  const int numCryptWorkers = 1;
-  std::unique_ptr<CryptoWorkers> cipherWorkers(CryptoWorkers::create(*this, CipherWorker::factory, numCryptWorkers));
-  std::unique_ptr<CryptoWorkers> decipherWorkers(CryptoWorkers::create(*this, DecipherWorker::factory, numCryptWorkers));
-
-  std::unique_ptr<RxWorkers> rxWorkers((new RxWorkers(*this, *cipherWorkers))->addPort(0));
-  std::unique_ptr<TxWorkers> cipherTxWorkers((new TxWorkers(*this, *cipherWorkers))->addPort(1));
-
-  std::unique_ptr<RxWorkers> decipherRxWorkers((new RxWorkers(*this, *decipherWorkers))->addPort(1));
-  std::unique_ptr<TxWorkers> txWorkers((new TxWorkers(*this, *decipherWorkers))->addPort(0));
+  // const int numCryptWorkers = 1;
+  //
+  // std::unique_ptr<CryptoWorkers> cipherWorkers(CryptoWorkers::create(*this, CipherWorker::factory, numCryptWorkers));
+  // std::unique_ptr<CryptoWorkers> decipherWorkers(CryptoWorkers::create(*this, DecipherWorker::factory, numCryptWorkers));
+  //
+  // std::unique_ptr<RxWorkers> rxWorkers((new RxWorkers(*this, *cipherWorkers))->joinPort(0));
+  // std::unique_ptr<TxWorkers> cipherTxWorkers((new TxWorkers(*this, *cipherWorkers))->joinPort(1));
+  //
+  // std::unique_ptr<RxWorkers> decipherRxWorkers((new RxWorkers(*this, *decipherWorkers))->joinPort(1));
+  // std::unique_ptr<TxWorkers> txWorkers((new TxWorkers(*this, *decipherWorkers))->joinPort(0));
   //std::unique_ptr<CryptWorkers> cryptController(CryptWorkers.start(this, 2));
 
   // for (uint8_t portid = 0; portid < ports; ++portid) {
@@ -63,6 +53,7 @@ bool RteController::start(int argc, char **argv) {
   //   my->start();
   //   this->ports.push_back(std::move(my));
   // }
+  lcores.launch();
   rte_eal_mp_wait_lcore();
   // bool stop = false;
   // while (!stop) {
@@ -80,16 +71,4 @@ bool RteController::start(int argc, char **argv) {
   //    }
   // }
   return true;
-}
-
-bool RteController::launch(lcore_function_t *func, void *arg) {
-  int id = 0;
-  for (std::vector<bool>::iterator it = usedLcores.begin() ; it != usedLcores.end(); ++it, ++id) {
-    if (!*it) {
-      *it = true;
-      rte_eal_remote_launch(func, arg, id);
-      return false;
-    }
-  }
-  return false;
 }

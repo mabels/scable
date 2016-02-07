@@ -27,10 +27,27 @@
 #include <rte_distributor.h>
 
 #include <iostream>
+#include <iomanip>
 
+#include <string>       // std::string
+#include <iostream>     // std::cout
+#include <sstream>
+
+#define ELPP_THREAD_SAFE
+#include "easylogging++.h"
 
 class Rte {
 public:
+  class Name {
+    private:
+      std::ostringstream name;
+    public:
+      const char *operator()(const char *base) {
+        name << base << std::hex << this;
+        LOG(INFO) << "Rte::Name:" << name.str();
+        return name.str().c_str();
+      }
+  };
   int eal_init(int argc, char **argv) { return rte_eal_init(argc, argv); }
   void exit() { rte_exit(EXIT_FAILURE, "Invalid EAL arguments\n"); }
 };
