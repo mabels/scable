@@ -6,23 +6,37 @@
 
 class Lcores {
   private:
-    std::vector<Lcore> lcores;
+    std::vector<std::unique_ptr<Lcore>> lcores;
   public:
     bool addLcore(int id) {
-      Lcore lcore(id);
-      lcores.push_back(lcore);
+      lcores.push_back(std::unique_ptr<Lcore>(new Lcore(id)));
     }
+
+    int size() const {
+      return lcores.size();
+    }
+
+    Lcore* findFree() {
+      for (auto it = lcores.begin() ; it != lcores.end(); ++it) {
+        if (!(*it)->hasActions()) {
+          return it->get();
+        }
+      }
+      LOG(ERROR) << "no free Lcore found!";
+      return 0;
+    }
+
     bool launch() {
       Lcore *master = 0;
       int id = 0;
-      for (std::vector<Lcore>::iterator it = lcores.begin() ; it != lcores.end(); ++it, ++id) {
-        if (it->isMaster()) {
-          master = &*it;
+      for (auto it = lcores.begin() ; it != lcores.end(); ++it, ++id) {
+        if ((*it)->isMaster()) {
+          master = it->get();
         } else {
-          rte_eal_remote_launch(Lcore::launch, &*it, id);
+          rte_eal_remote_launch(Lcore::launch, it->get(), id);
         }
       }
-      Lcore::launch(&master);
+      Lcore::launch(master);
       return false;
     }
 };

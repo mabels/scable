@@ -13,7 +13,7 @@ private:
   Rte rte;
   struct rte_distributor *cryptWorkers;
 
-  Ports ports;
+  std::unique_ptr<Ports> ports;
   Lcores lcores;
 
 public:

@@ -3,9 +3,11 @@
 
 #include "rte.h"
 
+class Ports;
+
 class Port {
   public:
-    const static uint16_t NB_MBUF = 8192;
+
     const static uint8_t BURST_TX_DRAIN_US = 100; /* TX drain every ~100us */
     const static uint8_t MAX_PKT_BURST = 32;
     const static uint8_t MAX_RX_QUEUE_PER_LCORE = 16;
@@ -42,13 +44,13 @@ class Port {
 
     unsigned lcore_id = 0;
 
-    struct rte_mempool *pktmbuf_pool;
 
-    Rte::Name mbufName;
+    Ports &ports;
+
 
   public:
-    Port(uint16_t portid)
-      : portid(portid) {
+    Port(uint16_t portid, Ports &ports)
+      : portid(portid), ports(ports) {
       LOG(INFO) << "Created PortId for " << portid;
       rte_eth_dev_info_get(portid, &dev_info);
       memset(&qconf, 0, sizeof(qconf));
@@ -60,6 +62,7 @@ class Port {
       port_conf.rxmode.hw_strip_crc = 0;   /**< CRC stripped by hardware */
       port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
     }
+
 
     bool start();
     bool assignLcore2Queue();

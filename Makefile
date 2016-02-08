@@ -93,13 +93,14 @@ OPENSSL=/usr/local/Cellar/openssl/1.0.2e_1
 #	CXX=clang++
 #endif
 
+#rx_workers.cc rx_worker.cc \
+#tx_workers.cc tx_worker.cc \
+#cipher_worker.cc decipher_worker.cc crypto_workers.cc \
+
 TEST_SOURCES=TestEnDecryption.cc
 TEST_OBJECTS = $(addprefix $(ARCH)/, $(TEST_SOURCES:.cc=.o))
 INTERFACER_SOURCES = scable.cc rte_controller.cc port.cc \
-	rx_workers.cc rx_worker.cc \
-	tx_workers.cc tx_worker.cc \
-	rte.cc crypto_workers.cc \
-	cipher_worker.cc decipher_worker.cc
+	rte.cc
 INTERFACER_OBJECTS = $(addprefix $(ARCH)/, $(INTERFACER_SOURCES:.cc=.o))
 INTERFACER_HEADERS = $(addprefix $(ARCH)/, $(INTERFACER_SOURCES:.cc=.h))
 #EXES = $(OBJECTS:.o=)
