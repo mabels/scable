@@ -2,7 +2,7 @@
 #define __scable_lcore__
 
 #include "rte.h"
-#include "action_ref.h"
+#include "lcore_action.h"
 
 class Lcore {
   private:
@@ -12,16 +12,17 @@ class Lcore {
         LOG(INFO) << "Young kill Lcore on:" << id << ":" << this;
         return;
       }
-      for(auto it = actionRefs.begin(); it != actionRefs.end(); ++it) {
-        LOG(INFO) << "Starting Lcore on:" << id << ":" << this << "=>" << it->name;
+      for(auto it = actions.begin(); it != actions.end(); ++it) {
+        (*(it->prepare))(it->context, *this);
+        //LOG(INFO) << "Starting Lcore on:" << id << ":" << this << "=>" << it->name;
       }
-      while (hasActions()) {
-        for(auto it = actionRefs.begin(); it != actionRefs.end(); ++it) {
+      while (1) {
+        for(auto it = actions.begin(); it != actions.end(); ++it) {
           (*(it->action))(it->context, *this);
         }
       }
     }
-    std::vector<Action> actionRefs;
+    std::vector<LcoreAction> actions;
   public:
     static int launch(void *dummy) {
       static_cast<Lcore *>(dummy)->main_loop();
@@ -36,13 +37,13 @@ class Lcore {
       return id;
     }
 
-    void addAction(const Action &action) {
+    void addAction(const LcoreAction &action) {
       LOG(INFO) << "Lcore::addAction:" << id << ":" << action.context << ":" << this;
-      actionRefs.push_back(action);
+      actions.push_back(action);
     }
 
     bool hasActions() {
-      return actionRefs.size() != 0;
+      return actions.size() != 0;
     }
 
     bool isMaster() {

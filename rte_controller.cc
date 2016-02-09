@@ -44,6 +44,7 @@ bool RteController::start(int argc, char **argv) {
   auto lcoreRxCore = lcores.findFree();
   auto uncipherRXAction = std::unique_ptr<UncipherRXAction>(new UncipherRXAction(*(cipherController.get())));
   uncipherRXAction->bindPort(ports->find(0));
+  cipherController->addCipherAction(uncipherRXAction->getCipherAction());
   lcoreRxCore->addAction(uncipherRXAction->getAction());
 
   auto lcoreTxCore = lcores.findFree();
@@ -56,6 +57,7 @@ bool RteController::start(int argc, char **argv) {
    */
   auto cipherRXAction = std::unique_ptr<CipherRXAction>(new CipherRXAction(*(cipherController.get())));
   cipherRXAction->bindPort(ports->find(1));
+  cipherController->addCipherAction(cipherRXAction->getCipherAction());
   lcoreRxCore->addAction(cipherRXAction->getAction());
 
   auto uncipherTXAction = std::unique_ptr<UncipherTXAction>(new UncipherTXAction());

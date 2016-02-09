@@ -1,25 +1,28 @@
 #ifndef __scable_uncipher_tx_action__
 #define __scable_uncipher_tx_action__
 
-#include "action_ref.h"
+#include "lcore_action.h"
 
 class UncipherTXAction {
   private:
     Port *port;
-    ActionRef<UncipherTXAction> actionRef;
+    LcoreActionDelegate<UncipherTXAction> actionDelegate;
   public:
-    UncipherTXAction() : actionRef(this) {
+    UncipherTXAction() : actionDelegate(this) {
     }
 
     void bindPort(Port *port) {
       this->port = port;
     }
 
-    void action(Lcore &lcore) {
+    void lcorePrepare(Lcore &lcore) {
+      LOG(INFO) << "Starting Lcore on:" << lcore.getId() << ":" << this << "=>" << name();
+    }
+    void lcoreAction(Lcore &lcore) {
     }
 
-    const Action& getAction() const {
-      return actionRef.get();
+    const LcoreAction& getAction() const {
+      return actionDelegate.get();
     }
 
     const char *name() const {

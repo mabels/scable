@@ -1,27 +1,33 @@
 #ifndef __scable_cipher_rx_action__
 #define __scable_cipher_rx_action__
 
-#include "action_ref.h"
+#include "lcore_action.h"
+#include "pkt_action.h"
 #include "cipher_controller.h"
 
 class CipherRXAction {
   private:
     Port *port;
-    ActionRef<CipherRXAction> actionRef;
+    const LcoreActionDelegate<CipherRXAction> lcoreActionDelegate;
+    const PktActionDelegate<CipherRXAction> cipherActionDelegate;
     CipherController &cipherController;
   public:
     CipherRXAction(CipherController &cipherController)
-      : actionRef(this), cipherController(cipherController) {
+      : lcoreActionDelegate(this),
+        cipherActionDelegate(this),
+        cipherController(cipherController) {
     }
 
-    void bindPort(Port *port) {
+    Port *bindPort(Port *port) {
       this->port = port;
+      return port;
     }
 
-    void prepare() {
+    void lcorePrepare(Lcore &lcore) {
+      LOG(INFO) << "Starting Lcore on:" << lcore.getId() << ":" << this << "=>" << name();
       //distributor = rxWorkers.getCryptoWorkers().getDistributor();
     }
-    void action(Lcore &lcore) {
+    void lcoreAction(Lcore &lcore) {
         // const uint64_t drain_tsc =
         //     (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * port.BURST_TX_DRAIN_US;
         // LOG(INFO) << "entering RxWorker::main_loop on lcore " << lcore_id;
@@ -50,9 +56,31 @@ class CipherRXAction {
         rte_distributor_process(cipherController.getDistributor(), pkts_burst, nb_rx);
     }
 
-    const Action& getAction() const {
-      return actionRef.get();
+    const LcoreAction& getAction() const {
+      return lcoreActionDelegate.get();
     }
+
+    void pktPrepare() {
+      LOG(INFO) << "Starting PktAction for Port:" << port->getId() << ":" << this << "=>" << name();
+    }
+
+    bool pktAction(struct rte_mbuf *buf) {
+      if (buf->port == port->getId()) {
+        struct ether_hdr *eth = rte_pktmbuf_mtod(buf, struct ether_hdr *);
+        LOG(INFO) << "on[" << name() << port->getId() << "] " << eth->s_addr << ">>" << eth->d_addr;
+        return true;
+      }
+      return false;
+    }
+
+    const PktAction& getCipherAction() const {
+      return cipherActionDelegate.get();
+    }
+
+    Port *getPort() const {
+      return port;
+    }
+
     const char *name() const {
       return "CipherRXAction";
     }

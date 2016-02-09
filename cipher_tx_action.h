@@ -1,25 +1,27 @@
 #ifndef __scable_cipher_tx_action__
 #define __scable_cipher_tx_action__
 
-#include "action_ref.h"
+#include "lcore_action.h"
 
 class CipherTXAction {
   private:
     Port *port;
-    ActionRef<CipherTXAction> actionRef;
+    const LcoreActionDelegate<CipherTXAction> actionDelegate;
   public:
-    CipherTXAction() : actionRef(this) {
+    CipherTXAction() : actionDelegate(this) {
     }
 
     void bindPort(Port *port) {
       this->port = port;
     }
-
-    void action(Lcore &lcore) {
+    void lcorePrepare(Lcore &lcore) {
+      LOG(INFO) << "Starting Lcore on:" << lcore.getId() << ":" << this << "=>" << name();
+    }
+    void lcoreAction(Lcore &lcore) {
     }
 
-    const Action& getAction() const {
-      return actionRef.get();
+    const LcoreAction& getAction() const {
+      return actionDelegate.get();
     }
     const char *name() const {
       return "CipherTXAction";
