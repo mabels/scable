@@ -11,11 +11,29 @@ class UncipherRXAction {
     const LcoreActionDelegate<UncipherRXAction> lcoreActionDelegate;
     const PktActionDelegate<UncipherRXAction> uncipherActionDelegate;
     CipherController &cipherController;
-  public:
+    struct rte_ring *distributorRing;
+    Rte::Name distributorRingName;
     UncipherRXAction(CipherController &cipherController)
-    : lcoreActionDelegate(this),
-      uncipherActionDelegate(this),
-      cipherController(cipherController) {
+      : lcoreActionDelegate(this),
+        uncipherActionDelegate(this),
+        cipherController(cipherController) {
+    }
+  public:
+    ~UncipherRXAction() {
+      if (distributorRing) {
+        rte_ring_free(distributorRing);
+      }
+    }
+    static UncipherRXAction *create(CipherController &cipherController) {
+      auto ret = new UncipherRXAction(cipherController);
+      ret->distributorRing = rte_ring_create(ret->distributorRingName("UncipherRXAction:"),
+                                            CipherController::RTE_RING_SZ, rte_socket_id(), RING_F_SC_DEQ);
+      if (ret->distributorRing == NULL) {
+        LOG(ERROR) << "Cannot create output ring";
+        delete ret;
+        return 0;
+      }
+      return ret;
     }
 
     Port *bindPort(Port *port) {
@@ -25,6 +43,7 @@ class UncipherRXAction {
 
     void lcorePrepare(Lcore &lcore) {
       LOG(INFO) << "Starting Lcore on:" << lcore.getId() << ":" << this << "=>" << name();
+
     }
 
     void lcoreAction(Lcore &lcore) {
@@ -37,7 +56,15 @@ class UncipherRXAction {
       // if (nb_rx) {
       //   LOG(INFO) << "received:" << name() << ":" << port->getId() << ":" << nb_rx;
       // }
-      rte_distributor_process(cipherController.getDistributor(), pkts_burst, nb_rx);
+      // unsigned ret = 0;
+      unsigned ret = rte_ring_sp_enqueue_burst(distributorRing, (void **)pkts_burst, nb_rx);
+      if (ret != nb_rx) {
+        LOG(ERROR) << "lcoreAction:rte_ring_sp_enqueue_burst missed some packet " << nb_rx << ":" << ret;
+      }
+      if (nb_rx > 0) {
+        unsigned rc = rte_ring_count(distributorRing);
+        // LOG(INFO) << "UncipherRXAction:" << distributorRing << ":" << port->getPortStatistics().rx << ":" << rc << ":" << nb_rx << ":" << ret;
+      }
     }
 
     void pktPrepare() {
@@ -68,6 +95,11 @@ class UncipherRXAction {
     const char *name() const {
       return "UncipherRXAction";
     }
+
+    struct rte_ring *getDistributorRing() const {
+      return distributorRing;
+    }
+
 
 };
 

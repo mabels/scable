@@ -11,12 +11,32 @@ class CipherRXAction {
     const LcoreActionDelegate<CipherRXAction> lcoreActionDelegate;
     const PktActionDelegate<CipherRXAction> cipherActionDelegate;
     CipherController &cipherController;
-  public:
+    struct rte_ring *distributorRing;
+    Rte::Name distributorRingName;
     CipherRXAction(CipherController &cipherController)
       : lcoreActionDelegate(this),
         cipherActionDelegate(this),
         cipherController(cipherController) {
     }
+  public:
+    ~CipherRXAction() {
+      if (distributorRing) {
+        rte_ring_free(distributorRing);
+      }
+    }
+
+    static CipherRXAction *create(CipherController &cipherController) {
+      auto ret = new CipherRXAction(cipherController);
+      ret->distributorRing = rte_ring_create(ret->distributorRingName("CipherRXAction:"),
+                                            CipherController::RTE_RING_SZ, rte_socket_id(), RING_F_SC_DEQ);
+      if (ret->distributorRing == NULL) {
+        LOG(ERROR) << "Cannot create output ring";
+        delete ret;
+        return 0;
+      }
+      return ret;
+    }
+
 
     Port *bindPort(Port *port) {
       this->port = port;
@@ -53,7 +73,14 @@ class CipherRXAction {
         // if (nb_rx) {
         //   LOG(INFO) << "received:" << port->getId() << ":" << nb_rx;
         // }
-        rte_distributor_process(cipherController.getDistributor(), pkts_burst, nb_rx);
+        unsigned ret = rte_ring_sp_enqueue_burst(distributorRing, (void **)pkts_burst, nb_rx);
+        if (ret != nb_rx) {
+          LOG(ERROR) << "lcoreAction:rte_ring_sp_enqueue_burst missed some packet " << nb_rx << ":" << ret;
+        }
+        if (nb_rx > 0) {
+          unsigned rc = rte_ring_count(distributorRing);
+          // LOG(INFO) << "cipherRXAction:" << distributorRing << ":" << port->getPortStatistics().rx << ":" << rc << ":" << nb_rx << ":" << ret;
+        }
     }
 
     const LcoreAction& getAction() const {
@@ -83,6 +110,10 @@ class CipherRXAction {
 
     const char *name() const {
       return "CipherRXAction";
+    }
+
+    struct rte_ring *getDistributorRing() const {
+      return distributorRing;
     }
 };
 

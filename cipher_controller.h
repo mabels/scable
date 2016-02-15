@@ -7,15 +7,17 @@
 #include "lcore_action.h"
 
 class CipherController {
-  private:
+  public:
     static const int RTE_RING_SZ = 1024;
+  private:
     Rte::Name distName;
     struct rte_distributor *distributor;
-    Rte::Name oRingName;
-    struct rte_ring *outputRing;
+
+    std::vector<struct rte_ring *> rxRings;
 
     LcoreActionDelegate<CipherController> lcoreActionDelegate;
     std::vector<PktAction> cipherActions;
+    struct rte_mbuf *buf = 0;
 
     CipherController() : lcoreActionDelegate(this) {
     }
@@ -28,19 +30,15 @@ class CipherController {
         LOG(ERROR) << "Cannot create distributor";
         return 0;
       }
-      cctl->outputRing = rte_ring_create(cctl->oRingName("cctl:oRing:"), RTE_RING_SZ,
-                  rte_socket_id(), RING_F_SC_DEQ);
-      if (cctl->outputRing == NULL) {
-        LOG(ERROR) << "Cannot create output ring";
-        return 0;
-      }
       return cctl;
     }
+
+    void addRxRing(struct rte_ring *ring) {
+      rxRings.push_back(ring);
+    }
+
     struct rte_distributor *getDistributor() const {
       return distributor;
-    }
-    struct rte_ring *getOutputRing() const {
-      return outputRing;
     }
     const LcoreAction& getAction() const {
       return lcoreActionDelegate.get();
@@ -56,15 +54,34 @@ class CipherController {
       }
     }
     void lcoreAction(Lcore &lcore) {
-      struct rte_mbuf *buf;
-      buf = rte_distributor_get_pkt(distributor, lcore.getId(), buf);
-      // rte_prefetch0(rte_pktmbuf_mtod(m, void *));
-      //struct ether_hdr *eth = rte_pktmbuf_mtod(buf, struct ether_hdr *);
-      for (auto it = cipherActions.begin(); it != cipherActions.end(); ++it) {
-        if ((*(it->action))(it->context, buf)) {
-            break;
+      const int size = Port::MAX_PKT_BURST * rxRings.size();
+      struct rte_mbuf *pkts_burst[size];
+      for (auto it : rxRings) {
+        unsigned nb_rx = rte_ring_sc_dequeue_burst(it, (void **)pkts_burst, Port::MAX_PKT_BURST);
+        if (nb_rx > 0) {
+          unsigned rc = rte_ring_count(it);
+          // for (int i = 0; i < nb_rx; ++i) {
+          //   rte_pktmbuf_free(pkts_burst[i]);
+          // }
+          rte_distributor_process(distributor, pkts_burst, nb_rx);
         }
       }
+      unsigned rx_size = rte_distributor_returned_pkts(distributor, pkts_burst, size);
+      if (rx_size) {
+        LOG(INFO) << "rte_distributor_returned_pkts:" << rx_size;
+      }
+      for (int i = 0; i < rx_size; ++i) {
+        rte_pktmbuf_free(pkts_burst[i]);
+      }
+
+      // buf = rte_distributor_get_pkt(distributor, lcore.getId(), buf);
+      // rte_prefetch0(rte_pktmbuf_mtod(m, void *));
+      //struct ether_hdr *eth = rte_pktmbuf_mtod(buf, struct ether_hdr *);
+      // for (auto it = cipherActions.begin(); it != cipherActions.end(); ++it) {
+      //   if ((*(it->action))(it->context, buf)) {
+      //       break;
+      //   }
+      // }
     }
 
     bool addCipherAction(const PktAction &pktAction) {

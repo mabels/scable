@@ -36,15 +36,17 @@ bool RteController::start(int argc, char **argv) {
   RTE_LCORE_FOREACH(lc) {
       lcores.addLcore(lc);
   }
-
   auto cipherController = std::unique_ptr<CipherController>(CipherController::create(lcores.size()));
+  auto lcoreCipherController = lcores.findFree();
+  lcoreCipherController->addAction(cipherController->getAction());
   /*
    *  UncipherRXAction(Port0)(lc0) -> CiperAction(lc2,lc3)    -> CipherTXAction(Port1)(lc1)
    */
   auto lcoreRxCore = lcores.findFree();
-  auto uncipherRXAction = std::unique_ptr<UncipherRXAction>(new UncipherRXAction(*(cipherController.get())));
+  auto uncipherRXAction = std::unique_ptr<UncipherRXAction>(UncipherRXAction::create(*(cipherController.get())));
   uncipherRXAction->bindPort(ports->find(0));
   cipherController->addCipherAction(uncipherRXAction->getCipherAction());
+  cipherController->addRxRing(uncipherRXAction->getDistributorRing());
   lcoreRxCore->addAction(uncipherRXAction->getAction());
 
   auto lcoreTxCore = lcores.findFree();
@@ -55,9 +57,10 @@ bool RteController::start(int argc, char **argv) {
   /*
    *  CipherRXAction(Port1)(lc0)   -> UncipherAction(lc2,lc3) -> UncipherTXAction(Port0)(lc1)
    */
-  auto cipherRXAction = std::unique_ptr<CipherRXAction>(new CipherRXAction(*(cipherController.get())));
+  auto cipherRXAction = std::unique_ptr<CipherRXAction>(CipherRXAction::create(*(cipherController.get())));
   cipherRXAction->bindPort(ports->find(1));
   cipherController->addCipherAction(cipherRXAction->getCipherAction());
+  cipherController->addRxRing(cipherRXAction->getDistributorRing());
   lcoreRxCore->addAction(cipherRXAction->getAction());
 
   auto uncipherTXAction = std::unique_ptr<UncipherTXAction>(new UncipherTXAction());
