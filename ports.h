@@ -26,6 +26,19 @@ class Ports {
                     LOG(ERROR) << "Cannot init mbuf pool";
                     return 0;
             }
+
+            uint8_t portCount = rte_eth_dev_count();
+            if (portCount == 0) {
+              LOG(ERROR) << "No ports defined you need exact two";
+              return 0;
+            }
+            if (portCount != 2) {
+              LOG(ERROR) << "not the right # of ports defined you need exact two";
+              return 0;
+            }
+            for (int i = 0; i < portCount; ++i) {
+              ports->addPort(i);
+            }
             return ports;
     }
 

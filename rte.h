@@ -54,4 +54,35 @@ public:
 
 std::ostream& operator<<(std::ostream &o, const struct ether_addr &ether_addr);
 
+template <typename C, typename T>
+class ToStringJoiner {
+  C &c;
+  T &s;
+  ToStringJoiner(C &&container, T&& sep)
+    : c(std::forward<C>(container))
+    , s(std::forward<T>(sep)) {
+  }
+public:
+  template <typename CC, typename TT> friend std::ostream& operator<<(std::ostream &o, ToStringJoiner<CC, TT> const &mj);
+  template <typename CC, typename TT> friend ToStringJoiner<CC, TT> join(CC &&container, TT&& sep);
+};
+
+template<typename T> T * ptr(T & obj) { return &obj; } //turn reference into pointer!
+
+template<typename T> T * ptr(T * obj) { return obj; } //obj is already pointer, return it!
+
+template<typename C, typename T> std::ostream& operator<<(std::ostream &o, ToStringJoiner<C, T> const &mj) {
+  const char *sep = "";
+  for (auto i : mj.c) {
+        o << sep;
+        o << ptr(i)->toString();
+        sep = mj.s;
+  }
+  return o;
+}
+
+template<typename C, typename T> ToStringJoiner<C, T> join(C &&container, T&& sep) {
+    return ToStringJoiner<C, T>(std::forward<C>(container), std::forward<T>(sep));
+}
+
 #endif

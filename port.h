@@ -4,6 +4,8 @@
 #include "rte.h"
 
 class Ports;
+class RXAction;
+class TXAction;
 
 class Port {
   public:
@@ -46,7 +48,8 @@ class Port {
 
 
     Ports &ports;
-
+    RXAction *rxAction;
+    TXAction *txAction;
 
   public:
     Port(uint16_t portid, Ports &ports)
@@ -79,6 +82,18 @@ class Port {
     // struct rte_mempool *getPktMbufPool() const {
     //   return pktmbuf_pool;
     // }
+    Port& bindRXAction(RXAction &rxa) {
+        rxAction = &rxa;
+        return *this;
+    }
+    Port& bindTXAction(TXAction &txa) {
+        txAction = &txa;
+        return *this;
+    }
+
+    std::string toString() const {
+      return std::to_string(portid);
+    }
 
 };
 

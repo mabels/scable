@@ -21,14 +21,14 @@ private:
   static bool actionFunc(void *ctx, struct rte_mbuf *buf) {
       return static_cast<T*>(ctx)->pktAction(buf);
   }
-  static Port* getportFunc(void *ctx) {
-      return static_cast<T*>(ctx)->getPort();
-  }
+  // static Port* getportFunc(void *ctx) {
+  //     return static_cast<T*>(ctx)->getPort();
+  // }
 public:
   PktActionDelegate(void *ctx) {
     action.prepare = PktActionDelegate<T>::prepareFunc;
     action.action = PktActionDelegate<T>::actionFunc;
-    action.getport = PktActionDelegate<T>::getportFunc;
+    // action.getport = PktActionDelegate<T>::getportFunc;
     action.context = ctx;
   }
   const PktAction& get() const {

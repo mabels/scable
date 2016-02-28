@@ -7,11 +7,42 @@
 // #include "crypto_workers.h"
 // #include "decipher_worker.h"
 // #include "cipher_worker.h"
-#include "uncipher_rx_action.h"
-#include "uncipher_tx_action.h"
+#include "ports.h"
+#include "sockets.h"
+#include "rx_action.h"
+#include "tx_action.h"
 
-#include "cipher_rx_action.h"
-#include "cipher_tx_action.h"
+#include "distribution_controller.h"
+#include "cipher_controller.h"
+#include "cipher_2_uncipher_worker.h"
+#include "uncipher_2_cipher_worker.h"
+
+
+RXAction& operator>>(Port &p, RXAction &rxa) {
+  return rxa.bindPort(p.bindRXAction(rxa));
+}
+
+Uncipher2CipherWorker& operator>>(RXAction &rxa, Uncipher2CipherWorker &c) {
+  return c.bindRXAction(rxa.bindWorker(c));
+}
+
+Cipher2UncipherWorker& operator>>(RXAction &rxa, Cipher2UncipherWorker &c) {
+  return c.bindRXAction(rxa.bindWorker(c));
+}
+
+TXAction& operator>>(Uncipher2CipherWorker &c, TXAction &txa) {
+  return txa.bindWorker(c.bindTXAction(txa));
+}
+
+TXAction& operator>>(Cipher2UncipherWorker &c, TXAction &txa) {
+  return txa.bindWorker(c.bindTXAction(txa));
+}
+
+void operator>>(TXAction &txa, Port &p) {
+  p.bindTXAction(txa.bindPort(p));
+}
+
+
 
 bool RteController::start(int argc, char **argv) {
   int ret = rte.eal_init(argc, argv);
@@ -19,57 +50,79 @@ bool RteController::start(int argc, char **argv) {
     LOG(ERROR) << "Invalid EAL arguments";
     return false;
   }
-  uint8_t portCount = rte_eth_dev_count();
-  if (portCount == 0) {
-    LOG(ERROR) << "No ports defined you need exact two";
-    return false;
-  }
-  if (portCount != 2) {
-    LOG(ERROR) << "not the right # of ports defined you need exact two";
-    return false;
-  }
-  ports = std::unique_ptr<Ports>(Ports::create());
-  for (int i = 0; i < portCount; ++i) {
-    ports->addPort(i);
-  }
-  int lc;
-  RTE_LCORE_FOREACH(lc) {
-      lcores.addLcore(lc);
-  }
-  auto cipherController = std::unique_ptr<CipherController>(CipherController::create(lcores.size()));
-  auto lcoreCipherController = lcores.findFree();
-  lcoreCipherController->addAction(cipherController->getAction());
-  /*
-   *  UncipherRXAction(Port0)(lc0) -> CiperAction(lc2,lc3)    -> CipherTXAction(Port1)(lc1)
-   */
-  auto lcoreRxCore = lcores.findFree();
-  auto uncipherRXAction = std::unique_ptr<UncipherRXAction>(UncipherRXAction::create(*(cipherController.get())));
-  uncipherRXAction->bindPort(ports->find(0));
-  cipherController->addCipherAction(uncipherRXAction->getCipherAction());
-  cipherController->addRxRing(uncipherRXAction->getDistributorRing());
-  lcoreRxCore->addAction(uncipherRXAction->getAction());
-
-  auto lcoreTxCore = lcores.findFree();
-  auto cipherTXAction = std::unique_ptr<CipherTXAction>(new CipherTXAction());
-  cipherTXAction->bindPort(ports->find(1));
-  lcoreTxCore->addAction(cipherTXAction->getAction());
+  auto sockets = std::unique_ptr<Sockets>(Sockets::create());
 
   /*
-   *  CipherRXAction(Port1)(lc0)   -> UncipherAction(lc2,lc3) -> UncipherTXAction(Port0)(lc1)
+   *     distributionController
+   *     cipherController
+   *         uncipher2cipher
+   *         cipher2unciper
+   *     uncipherRXAction
+   *     cipherRXAction
+   *     uncipherTXAction
+   *     cipherTXAction
    */
-  auto cipherRXAction = std::unique_ptr<CipherRXAction>(CipherRXAction::create(*(cipherController.get())));
-  cipherRXAction->bindPort(ports->find(1));
-  cipherController->addCipherAction(cipherRXAction->getCipherAction());
-  cipherController->addRxRing(cipherRXAction->getDistributorRing());
-  lcoreRxCore->addAction(cipherRXAction->getAction());
 
-  auto uncipherTXAction = std::unique_ptr<UncipherTXAction>(new UncipherTXAction());
-  uncipherTXAction->bindPort(ports->find(0));
-  lcoreTxCore->addAction(uncipherTXAction->getAction());
+  auto ports = std::unique_ptr<Ports>(Ports::create());
 
-  for(auto lcore = lcores.findFree(); lcore != 0; lcore = lcores.findFree()) {
+  auto socket = sockets->findFree();
+
+  auto lcorePacket = socket->findFree();
+  auto lcoreDistributionController = lcorePacket;
+  auto lcoreUncipherRXAction = lcorePacket;
+  auto lcoreCipherRXAction = lcorePacket;
+  auto lcoreUncipherTXAction = lcorePacket;
+  auto lcoreCipherTXAction = lcorePacket;
+
+  /*
+   *     uncipher RX(portX) -> dc -> workerx(portX) -> dc -> TX(portY)
+   *     cipher RX(portY) -> dc -> workery(portY) -> dc -> TX(portX)
+   */
+
+  auto distributionController = std::unique_ptr<DistributionController>(DistributionController::create());
+  lcoreDistributionController->addAction(distributionController->getAction());
+
+  auto cipherController = std::unique_ptr<CipherController>(CipherController::create(*(distributionController.get())));
+  auto uncipher2cipherWorker = std::unique_ptr<Uncipher2CipherWorker>(Uncipher2CipherWorker::create(*(cipherController.get())));
+  auto cipher2uncipherWorker = std::unique_ptr<Cipher2UncipherWorker>(Cipher2UncipherWorker::create(*(cipherController.get())));
+
+  for(auto lcore = socket->findFree(); lcore != 0; lcore = socket->findFree()) {
     lcore->addAction(cipherController->getAction());
   }
+
+  auto uncipherRXAction = std::unique_ptr<RXAction>(RXAction::create());
+  lcoreUncipherRXAction->addAction(uncipherRXAction->getAction());
+
+  auto cipherTXAction = std::unique_ptr<TXAction>(TXAction::create());
+  lcoreCipherTXAction->addAction(cipherTXAction->getAction());
+
+  *(ports->find(0)) >>
+    *uncipherRXAction >>
+    *uncipher2cipherWorker >>
+    *cipherTXAction >>
+    *(ports->find(1));
+
+
+  // auto cipherTXAction = std::unique_ptr<CipherTXAction>(CipherTXAction::create(*(distributionController.get())));
+  // cipherTXAction->bindPort(ports->find(1));
+  // lcoreCipherTXAction->addAction(cipherTXAction->getAction());
+
+  auto cipherRXAction = std::unique_ptr<RXAction>(RXAction::create());
+  lcoreCipherRXAction->addAction(cipherRXAction->getAction());
+
+  auto uncipherTXAction = std::unique_ptr<TXAction>(TXAction::create());
+  lcoreUncipherTXAction->addAction(uncipherTXAction->getAction());
+
+  *(ports->find(1)) >>
+    *cipherRXAction >>
+    *cipher2uncipherWorker >>
+    *uncipherTXAction >>
+    *(ports->find(0));
+
+  // auto uncipherTXAction = std::unique_ptr<UncipherTXAction>(UncipherTXAction::create(*(distributionController.get())));
+  // uncipherTXAction->bindPort(ports->find(0));
+  // lcoreUncipherTXAction->addAction(uncipherTXAction->getAction());
+
 
 //  CipherAction ciperAction = new CipherAction();
 //  DecipherAction deciperAction = new DecipherAction();
@@ -97,7 +150,7 @@ bool RteController::start(int argc, char **argv) {
   //   my->start();
   //   this->ports.push_back(std::move(my));
   // }
-  lcores.launch();
+  socket->launch();
   rte_eal_mp_wait_lcore();
   // bool stop = false;
   // while (!stop) {
